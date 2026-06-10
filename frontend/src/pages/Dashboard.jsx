@@ -1,6 +1,9 @@
 import DashboardLayout from "../layouts/DashboardLayout";
 
 export default function Dashboard() {
+
+  const user = JSON.parse(localStorage.getItem("user"));
+
   return (
     <DashboardLayout>
 
@@ -12,6 +15,21 @@ export default function Dashboard() {
         <p className="text-slate-500 mt-2">
           Sistema de autenticación y perfiles Sakila.
         </p>
+
+        <div className="mt-4 bg-white p-5 rounded-2xl shadow">
+          <h2 className="text-2xl font-bold text-slate-800">
+            Bienvenido {user?.first_name} {user?.last_name}
+          </h2>
+
+          <p className="text-slate-500 mt-1">
+            Rol: {user?.role}
+          </p>
+
+          <p className="text-slate-500">
+            Correo: {user?.email}
+          </p>
+        </div>
+
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-10">

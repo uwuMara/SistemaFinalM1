@@ -1,8 +1,22 @@
+import { useEffect, useState } from "react";
 import DashboardLayout from "../layouts/DashboardLayout";
 
 export default function Dashboard() {
 
   const user = JSON.parse(localStorage.getItem("user"));
+
+  const [stats, setStats] = useState({
+    usuarios_activos: 0,
+    intentos_bloqueados: 0,
+    roles_registrados: 0,
+  });
+
+  useEffect(() => {
+    fetch(`${import.meta.env.VITE_API_URL}/auth/dashboard/stats`)
+      .then((res) => res.json())
+      .then((data) => setStats(data))
+      .catch((err) => console.error(err));
+  }, []);
 
   return (
     <DashboardLayout>
@@ -28,6 +42,26 @@ export default function Dashboard() {
           <p className="text-slate-500">
             Correo: {user?.email}
           </p>
+
+          <button
+            onClick={() => {
+              localStorage.removeItem("user");
+              window.location.href = "/";
+            }}
+            className="
+              mt-4
+              bg-red-500
+              hover:bg-red-600
+              text-white
+              px-4
+              py-2
+              rounded-xl
+              font-semibold
+              transition
+            "
+          >
+            Cerrar Sesión
+          </button>
         </div>
 
       </div>
@@ -40,7 +74,7 @@ export default function Dashboard() {
           </h2>
 
           <p className="text-4xl font-black text-blue-900 mt-3">
-            128
+            {stats.usuarios_activos}
           </p>
         </div>
 
@@ -50,7 +84,7 @@ export default function Dashboard() {
           </h2>
 
           <p className="text-4xl font-black text-red-500 mt-3">
-            14
+            {stats.intentos_bloqueados}
           </p>
         </div>
 
@@ -60,7 +94,7 @@ export default function Dashboard() {
           </h2>
 
           <p className="text-4xl font-black text-emerald-500 mt-3">
-            3
+            {stats.roles_registrados}
           </p>
         </div>
 

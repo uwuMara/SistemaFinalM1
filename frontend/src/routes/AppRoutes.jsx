@@ -11,13 +11,9 @@ export default function AppRoutes() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Login />} />
-
         <Route path="/dashboard" element={<Dashboard />} />
-
         <Route path="/perfil" element={<PerfilUsuario />} />
-
         <Route path="/roles" element={<RolesPermisos />} />
-
         <Route path="/intrusos" element={<MonitoreoIntrusos />} />
       </Routes>
     </BrowserRouter>

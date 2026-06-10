@@ -4,9 +4,11 @@ from app.db.connection import get_connection
 
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
 
+
 class LoginRequest(BaseModel):
     email: str
     password: str
+
 
 @router.post("/login")
 def login(data: LoginRequest):
@@ -15,51 +17,98 @@ def login(data: LoginRequest):
 
     cur.execute("""
         SELECT 
-            au.user_id,
-            au.email,
-            au.password_hash,
-            au.is_active,
+            s.staff_id,
+            s.email,
+            sa.password_hash,
+            sa.is_active,
+            sa.failed_attempts,
+            sa.locked_until,
             s.first_name,
             s.last_name,
-            r.name AS role
-        FROM auth_users au
-        JOIN staff s ON s.staff_id = au.staff_id
-        JOIN roles r ON r.role_id = au.role_id
-        WHERE au.email = %s
+            r.role_name
+        FROM staff s
+        JOIN staff_auth sa ON sa.staff_id = s.staff_id
+        JOIN roles r ON r.role_id = sa.role_id
+        WHERE s.email = %s
     """, (data.email,))
 
     user = cur.fetchone()
 
     if not user:
         cur.execute("""
-            INSERT INTO login_attempts (email, ip_address, status, reason)
-            VALUES (%s, %s, %s, %s)
-        """, (data.email, "127.0.0.1", "FAILED", "Usuario no registrado"))
+            INSERT INTO login_audit (staff_id, username, ip_address, user_agent, success, reason)
+            VALUES (NULL, %s, %s, %s, false, %s)
+        """, (data.email, "127.0.0.1", "Frontend", "Usuario no registrado"))
+
+        cur.execute("""
+            INSERT INTO intrusion_events (username, ip_address, severity, reason, status)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (data.email, "127.0.0.1", "MEDIUM", "Usuario no registrado", "OPEN"))
+
         conn.commit()
         cur.close()
         conn.close()
+
         raise HTTPException(status_code=401, detail="Usuario no registrado")
 
-    user_id, email, password_hash, is_active, first_name, last_name, role = user
+    (
+        staff_id,
+        email,
+        password_hash,
+        is_active,
+        failed_attempts,
+        locked_until,
+        first_name,
+        last_name,
+        role_name
+    ) = user
 
     if not is_active:
         raise HTTPException(status_code=403, detail="Usuario inactivo")
 
     if data.password != password_hash:
         cur.execute("""
-            INSERT INTO login_attempts (email, ip_address, status, reason)
-            VALUES (%s, %s, %s, %s)
-        """, (data.email, "127.0.0.1", "FAILED", "Contraseña incorrecta"))
+            UPDATE staff_auth
+            SET failed_attempts = failed_attempts + 1
+            WHERE staff_id = %s
+        """, (staff_id,))
+
+        cur.execute("""
+            INSERT INTO login_audit (staff_id, username, ip_address, user_agent, success, reason)
+            VALUES (%s, %s, %s, %s, false, %s)
+        """, (staff_id, email, "127.0.0.1", "Frontend", "Contraseña incorrecta"))
+
+        if failed_attempts + 1 >= 3:
+            cur.execute("""
+                UPDATE staff_auth
+                SET locked_until = now() + interval '15 minutes'
+                WHERE staff_id = %s
+            """, (staff_id,))
+
+            cur.execute("""
+                INSERT INTO intrusion_events (username, ip_address, severity, reason, blocked_until, status)
+                VALUES (%s, %s, %s, %s, now() + interval '15 minutes', %s)
+            """, (email, "127.0.0.1", "HIGH", "Demasiados intentos fallidos", "OPEN"))
+
         conn.commit()
         cur.close()
         conn.close()
+
         raise HTTPException(status_code=401, detail="Contraseña incorrecta")
 
     cur.execute("""
-        UPDATE auth_users
-        SET last_login = CURRENT_TIMESTAMP
-        WHERE user_id = %s
-    """, (user_id,))
+        UPDATE staff_auth
+        SET 
+            last_login = now(),
+            failed_attempts = 0,
+            locked_until = NULL
+        WHERE staff_id = %s
+    """, (staff_id,))
+
+    cur.execute("""
+        INSERT INTO login_audit (staff_id, username, ip_address, user_agent, success, reason)
+        VALUES (%s, %s, %s, %s, true, %s)
+    """, (staff_id, email, "127.0.0.1", "Frontend", "Login correcto"))
 
     conn.commit()
     cur.close()
@@ -68,13 +117,14 @@ def login(data: LoginRequest):
     return {
         "message": "Login correcto",
         "user": {
-            "user_id": user_id,
+            "staff_id": staff_id,
             "email": email,
             "first_name": first_name,
             "last_name": last_name,
-            "role": role
+            "role": role_name
         }
     }
+
 
 @router.get("/me")
 def me():
@@ -82,23 +132,23 @@ def me():
         "message": "Endpoint de perfil activo"
     }
 
+
 @router.get("/dashboard/stats")
 def dashboard_stats():
-
     conn = get_connection()
     cur = conn.cursor()
 
     cur.execute("""
         SELECT COUNT(*)
-        FROM auth_users
+        FROM staff_auth
         WHERE is_active = true
     """)
     usuarios_activos = cur.fetchone()[0]
 
     cur.execute("""
         SELECT COUNT(*)
-        FROM login_attempts
-        WHERE status = 'BLOCKED'
+        FROM intrusion_events
+        WHERE status = 'OPEN'
     """)
     intentos_bloqueados = cur.fetchone()[0]
 

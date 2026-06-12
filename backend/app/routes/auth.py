@@ -166,3 +166,84 @@ def dashboard_stats():
         "intentos_bloqueados": intentos_bloqueados,
         "roles_registrados": roles_registrados
     }
+
+
+@router.get("/sessions")
+def get_active_sessions(staff_id: int = None, active_only: bool = True):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    query = """
+        SELECT 
+            asess.session_id,
+            asess.staff_id,
+            asess.ip_address,
+            asess.user_agent,
+            asess.created_at,
+            asess.expires_at,
+            asess.is_revoked,
+            s.email,
+            s.first_name,
+            s.last_name
+        FROM active_sessions asess
+        JOIN staff s ON s.staff_id = asess.staff_id
+        WHERE 1=1
+    """
+    params = []
+    if staff_id is not None:
+        query += " AND asess.staff_id = %s"
+        params.append(staff_id)
+
+    if active_only:
+        query += " AND asess.is_revoked = false AND asess.expires_at > now()"
+
+    query += " ORDER BY asess.created_at DESC"
+
+    cur.execute(query, tuple(params))
+    rows = cur.fetchall()
+
+    sessions = []
+    for row in rows:
+        sessions.append({
+            "session_id": row[0],
+            "staff_id": row[1],
+            "ip_address": row[2],
+            "user_agent": row[3],
+            "created_at": row[4],
+            "expires_at": row[5],
+            "is_revoked": row[6],
+            "staff": {
+                "email": row[7],
+                "first_name": row[8],
+                "last_name": row[9]
+            }
+        })
+
+    cur.close()
+    conn.close()
+    return sessions
+
+
+@router.post("/sessions/{session_id}/revoke")
+def revoke_session(session_id: str):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Verificar si la sesión existe
+    cur.execute("SELECT session_id FROM active_sessions WHERE session_id = %s", (session_id,))
+    if not cur.fetchone():
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    cur.execute("""
+        UPDATE active_sessions
+        SET is_revoked = true
+        WHERE session_id = %s
+    """, (session_id,))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return {"message": f"Sesión {session_id} revocada correctamente"}

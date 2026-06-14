@@ -12,7 +12,13 @@ export default function Dashboard() {
   });
 
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_URL}/auth/dashboard/stats`)
+    fetch(`${import.meta.env.VITE_API_URL}/auth/dashboard/stats`,
+      {
+        headers: {
+          "X-Session-Id": localStorage.getItem("session_id").replace(/['"]+/g, '')
+        }
+      }
+    )
       .then((res) => res.json())
       .then((data) => setStats(data))
       .catch((err) => console.error(err));

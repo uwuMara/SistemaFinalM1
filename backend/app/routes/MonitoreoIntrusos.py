@@ -1,6 +1,7 @@
 import uuid
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from app.db.connection import get_connection
+from app.dependencies import get_current_active_session
 
 router = APIRouter(prefix="/auth", tags=["Monitoreo de Intrusos"])
 
@@ -15,7 +16,7 @@ def create_session(cur, staff_id: int, ip_address: str, user_agent: str) -> str:
 
 
 @router.get("/sessions")
-def get_active_sessions(staff_id: int = None, active_only: bool = True):
+def get_active_sessions(staff_id: int = None, active_only: bool = True, current_staff_id: int = Depends(get_current_active_session)):
     conn = get_connection()
     cur = conn.cursor()
 
@@ -71,7 +72,7 @@ def get_active_sessions(staff_id: int = None, active_only: bool = True):
 
 
 @router.post("/sessions/{session_id}/revoke")
-def revoke_session(session_id: str):
+def revoke_session(session_id: str, current_staff_id: int = Depends(get_current_active_session)):
     conn = get_connection()
     cur = conn.cursor()
 

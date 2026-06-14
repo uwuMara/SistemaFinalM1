@@ -11,7 +11,12 @@ export default function MonitoreoIntrusos() {
   const fetchSessions = () => {
     setLoading(true);
     fetch(
-      `${import.meta.env.VITE_API_URL}/auth/sessions?active_only=${activeOnly}`
+      `${import.meta.env.VITE_API_URL}/auth/sessions?active_only=${activeOnly}`,
+      {
+        headers: {
+          "X-Session-Id": localStorage.getItem("session_id").replace(/['"]+/g, '')
+        }
+      }
     )
       .then((res) => {
         if (!res.ok) {
@@ -43,6 +48,9 @@ export default function MonitoreoIntrusos() {
 
     fetch(`${import.meta.env.VITE_API_URL}/auth/sessions/${sessionId}/revoke`, {
       method: "POST",
+      headers: {
+        "X-Session-Id": localStorage.getItem("session_id").replace(/['"]+/g, '')
+      },
     })
       .then((res) => {
         if (!res.ok) {
@@ -74,9 +82,8 @@ export default function MonitoreoIntrusos() {
         {/* Mensajes de notificación */}
         {message && (
           <div
-            className={`mt-4 p-4 rounded-xl text-white font-semibold transition-all ${
-              message.type === "success" ? "bg-emerald-500" : "bg-red-500"
-            }`}
+            className={`mt-4 p-4 rounded-xl text-white font-semibold transition-all ${message.type === "success" ? "bg-emerald-500" : "bg-red-500"
+              }`}
           >
             {message.text}
           </div>

@@ -1,8 +1,9 @@
 import uuid
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel
 from app.db.connection import get_connection
 from app.routes.MonitoreoIntrusos import create_session
+from app.dependencies import get_current_active_session
 
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
 
@@ -135,14 +136,14 @@ def login(data: LoginRequest, request: Request):
 
 
 @router.get("/me")
-def me():
+def me(staff_id: int = Depends(get_current_active_session)):
     return {
         "message": "Endpoint de perfil activo"
     }
 
 
 @router.get("/dashboard/stats")
-def dashboard_stats():
+def dashboard_stats(staff_id: int = Depends(get_current_active_session)):
     conn = get_connection()
     cur = conn.cursor()
 

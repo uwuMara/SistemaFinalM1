@@ -1,9 +1,6 @@
-import uuid
-from fastapi import APIRouter, HTTPException, Request, Depends, Header
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.db.connection import get_connection
-from app.routes.MonitoreoIntrusos import create_session, close_session
-from app.dependencies import get_current_active_session
 
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
 
@@ -14,12 +11,9 @@ class LoginRequest(BaseModel):
 
 
 @router.post("/login")
-def login(data: LoginRequest, request: Request):
+def login(data: LoginRequest):
     conn = get_connection()
     cur = conn.cursor()
-
-    ip_address = request.client.host if request.client else "127.0.0.1"
-    user_agent = request.headers.get("user-agent", "Frontend")
 
     cur.execute("""
         SELECT 
@@ -44,12 +38,12 @@ def login(data: LoginRequest, request: Request):
         cur.execute("""
             INSERT INTO login_audit (staff_id, username, ip_address, user_agent, success, reason)
             VALUES (NULL, %s, %s, %s, false, %s)
-        """, (data.email, ip_address, user_agent, "Usuario no registrado"))
+        """, (data.email, "127.0.0.1", "Frontend", "Usuario no registrado"))
 
         cur.execute("""
             INSERT INTO intrusion_events (username, ip_address, severity, reason, status)
             VALUES (%s, %s, %s, %s, %s)
-        """, (data.email, ip_address, "MEDIUM", "Usuario no registrado", "OPEN"))
+        """, (data.email, "127.0.0.1", "MEDIUM", "Usuario no registrado", "OPEN"))
 
         conn.commit()
         cur.close()
@@ -82,7 +76,7 @@ def login(data: LoginRequest, request: Request):
         cur.execute("""
             INSERT INTO login_audit (staff_id, username, ip_address, user_agent, success, reason)
             VALUES (%s, %s, %s, %s, false, %s)
-        """, (staff_id, email, ip_address, user_agent, "Contraseña incorrecta"))
+        """, (staff_id, email, "127.0.0.1", "Frontend", "Contraseña incorrecta"))
 
         if failed_attempts + 1 >= 3:
             cur.execute("""
@@ -94,7 +88,7 @@ def login(data: LoginRequest, request: Request):
             cur.execute("""
                 INSERT INTO intrusion_events (username, ip_address, severity, reason, blocked_until, status)
                 VALUES (%s, %s, %s, %s, now() + interval '15 minutes', %s)
-            """, (email, ip_address, "HIGH", "Demasiados intentos fallidos", "OPEN"))
+            """, (email, "127.0.0.1", "HIGH", "Demasiados intentos fallidos", "OPEN"))
 
         conn.commit()
         cur.close()
@@ -114,9 +108,7 @@ def login(data: LoginRequest, request: Request):
     cur.execute("""
         INSERT INTO login_audit (staff_id, username, ip_address, user_agent, success, reason)
         VALUES (%s, %s, %s, %s, true, %s)
-    """, (staff_id, email, ip_address, user_agent, "Login correcto"))
-
-    session_id = create_session(cur, staff_id, ip_address, user_agent)
+    """, (staff_id, email, "127.0.0.1", "Frontend", "Login correcto"))
 
     conn.commit()
     cur.close()
@@ -124,7 +116,6 @@ def login(data: LoginRequest, request: Request):
 
     return {
         "message": "Login correcto",
-        "session_id": session_id,
         "user": {
             "staff_id": staff_id,
             "email": email,
@@ -136,31 +127,14 @@ def login(data: LoginRequest, request: Request):
 
 
 @router.get("/me")
-def me(staff_id: int = Depends(get_current_active_session)):
+def me():
     return {
         "message": "Endpoint de perfil activo"
     }
 
 
-@router.post("/logout")
-def logout(x_session_id: str = Header(None, alias="X-Session-Id"), current_staff_id: int = Depends(get_current_active_session)):
-    conn = get_connection()
-    cur = conn.cursor()
-    try:
-        close_session(cur, x_session_id)
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al cerrar sesión: {str(e)}")
-    finally:
-        cur.close()
-        conn.close()
-
-    return {"message": "Sesión cerrada correctamente"}
-
-
 @router.get("/dashboard/stats")
-def dashboard_stats(staff_id: int = Depends(get_current_active_session)):
+def dashboard_stats():
     conn = get_connection()
     cur = conn.cursor()
 

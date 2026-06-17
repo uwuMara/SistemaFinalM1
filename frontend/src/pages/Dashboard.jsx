@@ -11,11 +11,35 @@ export default function Dashboard() {
     roles_registrados: 0,
   });
 
+  const handleLogout = async () => {
+    const rawSessionId = localStorage.getItem("session_id");
+    const sessionId = rawSessionId ? rawSessionId.replace(/['"]+/g, '') : null;
+    if (sessionId) {
+      try {
+        await fetch(`${import.meta.env.VITE_API_URL}/auth/logout`, {
+          method: "POST",
+          headers: {
+            "X-Session-Id": sessionId
+          }
+        });
+      } catch (err) {
+        console.error("Error al cerrar sesión en el servidor:", err);
+      }
+    }
+    localStorage.removeItem("user");
+    localStorage.removeItem("session_id");
+    window.location.href = "/";
+  };
+
   useEffect(() => {
+    const rawSessionId = localStorage.getItem("session_id");
+    const sessionId = rawSessionId ? rawSessionId.replace(/['"]+/g, '') : null;
+    if (!sessionId) return;
+
     fetch(`${import.meta.env.VITE_API_URL}/auth/dashboard/stats`,
       {
         headers: {
-          "X-Session-Id": localStorage.getItem("session_id").replace(/['"]+/g, '')
+          "X-Session-Id": sessionId
         }
       }
     )
@@ -50,10 +74,7 @@ export default function Dashboard() {
           </p>
 
           <button
-            onClick={() => {
-              localStorage.removeItem("user");
-              window.location.href = "/";
-            }}
+            onClick={handleLogout}
             className="
               mt-4
               bg-red-500

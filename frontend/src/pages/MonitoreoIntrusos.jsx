@@ -41,8 +41,36 @@ export default function MonitoreoIntrusos() {
     fetchSessions();
   }, [activeOnly]);
 
+  const handleCloseSession = (sessionId) => {
+    if (!confirm("¿Estás seguro de que deseas cerrar esta sesión?")) {
+      return;
+    }
+
+    fetch(`${import.meta.env.VITE_API_URL}/auth/sessions/${sessionId}/close`, {
+      method: "POST",
+      headers: {
+        "X-Session-Id": localStorage.getItem("session_id").replace(/['"]+/g, '')
+      },
+    })
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error("Error al cerrar la sesión");
+        }
+        return res.json();
+      })
+      .then((data) => {
+        setMessage({ type: "success", text: data.message });
+        fetchSessions();
+        setTimeout(() => setMessage(null), 4000);
+      })
+      .catch((err) => {
+        setMessage({ type: "error", text: err.message });
+        setTimeout(() => setMessage(null), 4000);
+      });
+  };
+
   const handleRevoke = (sessionId) => {
-    if (!confirm("¿Estás seguro de que deseas revocar esta sesión?")) {
+    if (!confirm("¿Estás seguro de que deseas revocar esta sesión y desactivar al usuario?")) {
       return;
     }
 
@@ -189,12 +217,20 @@ export default function MonitoreoIntrusos() {
                         </td>
                         <td className="p-4 text-center">
                           {isActive && (
-                            <button
-                              onClick={() => handleRevoke(session.session_id)}
-                              className="bg-red-500 hover:bg-red-600 text-white text-sm px-3 py-1.5 rounded-lg font-semibold transition"
-                            >
-                              Revocar
-                            </button>
+                            <div className="flex justify-center gap-2">
+                              <button
+                                onClick={() => handleCloseSession(session.session_id)}
+                                className="bg-amber-500 hover:bg-amber-600 text-white text-xs px-3 py-1.5 rounded-lg font-semibold transition"
+                              >
+                                Cerrar Sesión
+                              </button>
+                              <button
+                                onClick={() => handleRevoke(session.session_id)}
+                                className="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg font-semibold transition"
+                              >
+                                Revocar
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>

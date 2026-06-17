@@ -15,14 +15,6 @@ def create_session(cur, staff_id: int, ip_address: str, user_agent: str) -> str:
     return session_id
 
 
-def close_session(cur, session_id: str):
-    cur.execute("""
-        UPDATE active_sessions
-        SET is_revoked = true
-        WHERE session_id = %s
-    """, (session_id,))
-
-
 @router.get("/sessions")
 def get_active_sessions(staff_id: int = None, active_only: bool = True, current_staff_id: int = Depends(get_current_active_session)):
     conn = get_connection()
@@ -79,29 +71,6 @@ def get_active_sessions(staff_id: int = None, active_only: bool = True, current_
     return sessions
 
 
-@router.post("/sessions/{session_id}/close")
-def close_user_session(session_id: str, current_staff_id: int = Depends(get_current_active_session)):
-    conn = get_connection()
-    cur = conn.cursor()
-
-    # Verificar si la sesión existe
-    cur.execute("SELECT 1 FROM active_sessions WHERE session_id = %s", (session_id,))
-    row = cur.fetchone()
-    if not row:
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
-
-    # Revocar la sesión únicamente
-    close_session(cur, session_id)
-
-    conn.commit()
-    cur.close()
-    conn.close()
-
-    return {"message": f"Sesión {session_id} cerrada correctamente"}
-
-
 @router.post("/sessions/{session_id}/revoke")
 def revoke_session(session_id: str, current_staff_id: int = Depends(get_current_active_session)):
     conn = get_connection()
@@ -118,7 +87,11 @@ def revoke_session(session_id: str, current_staff_id: int = Depends(get_current_
     staff_id = row[0]
 
     # Revocar la sesión
-    close_session(cur, session_id)
+    cur.execute("""
+        UPDATE active_sessions
+        SET is_revoked = true
+        WHERE session_id = %s
+    """, (session_id,))
 
     # Desactivar al usuario en staff_auth para que no pueda hacer login
     cur.execute("""
@@ -131,4 +104,4 @@ def revoke_session(session_id: str, current_staff_id: int = Depends(get_current_
     cur.close()
     conn.close()
 
-    return {"message": f"Sesión {session_id} revocada y usuario desactivado correctamente"}
+    return {"message": f"Sesión {session_id} revocada correctamente"}

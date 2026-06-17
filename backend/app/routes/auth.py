@@ -1,8 +1,8 @@
 import uuid
-from fastapi import APIRouter, HTTPException, Request, Depends, Header
+from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel
 from app.db.connection import get_connection
-from app.routes.MonitoreoIntrusos import create_session, close_session
+from app.routes.MonitoreoIntrusos import create_session
 from app.dependencies import get_current_active_session
 
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
@@ -140,23 +140,6 @@ def me(staff_id: int = Depends(get_current_active_session)):
     return {
         "message": "Endpoint de perfil activo"
     }
-
-
-@router.post("/logout")
-def logout(x_session_id: str = Header(None, alias="X-Session-Id"), current_staff_id: int = Depends(get_current_active_session)):
-    conn = get_connection()
-    cur = conn.cursor()
-    try:
-        close_session(cur, x_session_id)
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al cerrar sesión: {str(e)}")
-    finally:
-        cur.close()
-        conn.close()
-
-    return {"message": "Sesión cerrada correctamente"}
 
 
 @router.get("/dashboard/stats")

@@ -167,137 +167,83 @@ def dashboard_stats():
         "roles_registrados": roles_registrados
     }
 
-# ─────────────────────────────────────────────
-# ROLES Y PERMISOS — LECTURA
-# ─────────────────────────────────────────────
 
-@router.get("/roles")
-def get_roles_permisos():
+@router.get("/sessions")
+def get_active_sessions(staff_id: int = None, active_only: bool = True):
     conn = get_connection()
     cur = conn.cursor()
 
-    # Traemos cada rol con su lista de permisos agrupada en JSON
-    # COALESCE garantiza que si un rol no tiene permisos retorne [] en vez de null
-    cur.execute("""
+    query = """
         SELECT 
-            r.role_id,
-            r.role_name,
-            r.description,
-            COALESCE(
-                json_agg(
-                    json_build_object(
-                        'permission_id', p.permission_id,
-                        'permission_code', p.permission_code,
-                        'description', p.description
-                    )
-                ) FILTER (WHERE p.permission_id IS NOT NULL),
-                '[]'
-            ) as permissions
-        FROM roles r
-        LEFT JOIN role_permissions rp ON rp.role_id = r.role_id
-        LEFT JOIN permissions p ON p.permission_id = rp.permission_id
-        GROUP BY r.role_id, r.role_name, r.description
-        ORDER BY r.role_id
-    """)
+            asess.session_id,
+            asess.staff_id,
+            asess.ip_address,
+            asess.user_agent,
+            asess.created_at,
+            asess.expires_at,
+            asess.is_revoked,
+            s.email,
+            s.first_name,
+            s.last_name
+        FROM active_sessions asess
+        JOIN staff s ON s.staff_id = asess.staff_id
+        WHERE 1=1
+    """
+    params = []
+    if staff_id is not None:
+        query += " AND asess.staff_id = %s"
+        params.append(staff_id)
 
-    roles = cur.fetchall()
-    cur.close()
-    conn.close()
+    if active_only:
+        query += " AND asess.is_revoked = false AND asess.expires_at > now()"
 
-    return [
-        {
-            "role_id": row[0],
-            "role_name": row[1],
-            "description": row[2],
-            "permissions": row[3]
-        }
-        for row in roles
-    ]
+    query += " ORDER BY asess.created_at DESC"
 
+    cur.execute(query, tuple(params))
+    rows = cur.fetchall()
 
-# ─────────────────────────────────────────────
-# ROLES Y PERMISOS — TODOS LOS PERMISOS
-# Necesario para saber cuáles le faltan a un rol
-# ─────────────────────────────────────────────
-
-@router.get("/permisos")
-def get_todos_los_permisos():
-    conn = get_connection()
-    cur = conn.cursor()
-
-    # Traemos todos los permisos disponibles en el sistema
-    cur.execute("SELECT permission_id, permission_code, description FROM permissions ORDER BY permission_id")
-    permisos = cur.fetchall()
+    sessions = []
+    for row in rows:
+        sessions.append({
+            "session_id": row[0],
+            "staff_id": row[1],
+            "ip_address": row[2],
+            "user_agent": row[3],
+            "created_at": row[4],
+            "expires_at": row[5],
+            "is_revoked": row[6],
+            "staff": {
+                "email": row[7],
+                "first_name": row[8],
+                "last_name": row[9]
+            }
+        })
 
     cur.close()
     conn.close()
-
-    return [
-        {
-            "permission_id": row[0],
-            "permission_code": row[1],
-            "description": row[2]
-        }
-        for row in permisos
-    ]
+    return sessions
 
 
-# ─────────────────────────────────────────────
-# ROLES Y PERMISOS — AGREGAR PERMISO A UN ROL
-# Solo accesible para ADMIN desde el frontend
-# ─────────────────────────────────────────────
-
-@router.post("/roles/{role_id}/permisos/{permission_id}")
-def agregar_permiso(role_id: int, permission_id: int):
+@router.post("/sessions/{session_id}/revoke")
+def revoke_session(session_id: str):
     conn = get_connection()
     cur = conn.cursor()
 
-    # Verificamos que el rol exista
-    cur.execute("SELECT role_id FROM roles WHERE role_id = %s", (role_id,))
+    # Verificar si la sesión existe
+    cur.execute("SELECT session_id FROM active_sessions WHERE session_id = %s", (session_id,))
     if not cur.fetchone():
-        raise HTTPException(status_code=404, detail="Rol no encontrado")
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
-    # Verificamos que el permiso exista
-    cur.execute("SELECT permission_id FROM permissions WHERE permission_id = %s", (permission_id,))
-    if not cur.fetchone():
-        raise HTTPException(status_code=404, detail="Permiso no encontrado")
-
-    # Insertamos la relación — ON CONFLICT evita duplicados
     cur.execute("""
-        INSERT INTO role_permissions (role_id, permission_id)
-        VALUES (%s, %s)
-        ON CONFLICT DO NOTHING
-    """, (role_id, permission_id))
+        UPDATE active_sessions
+        SET is_revoked = true
+        WHERE session_id = %s
+    """, (session_id,))
 
     conn.commit()
     cur.close()
     conn.close()
 
-    return {"message": "Permiso agregado correctamente"}
-
-
-# ─────────────────────────────────────────────
-# ROLES Y PERMISOS — QUITAR PERMISO DE UN ROL
-# Solo accesible para ADMIN desde el frontend
-# ─────────────────────────────────────────────
-
-@router.delete("/roles/{role_id}/permisos/{permission_id}")
-def quitar_permiso(role_id: int, permission_id: int):
-    conn = get_connection()
-    cur = conn.cursor()
-
-    # Eliminamos la relación entre el rol y el permiso
-    cur.execute("""
-        DELETE FROM role_permissions
-        WHERE role_id = %s AND permission_id = %s
-    """, (role_id, permission_id))
-
-    # Si no se eliminó ninguna fila, el permiso no existía en ese rol
-    if cur.rowcount == 0:
-        raise HTTPException(status_code=404, detail="El rol no tenía ese permiso")
-
-    conn.commit()
-    cur.close()
-    conn.close()
-
-    return {"message": "Permiso eliminado correctamente"}
+    return {"message": f"Sesión {session_id} revocada correctamente"}

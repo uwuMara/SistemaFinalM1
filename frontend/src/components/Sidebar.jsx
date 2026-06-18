@@ -1,71 +1,90 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link } from "react-router-dom";
+import { User, Shield, Key, AlertTriangle, LogOut } from "lucide-react";
 
 export default function Sidebar() {
-  const user = JSON.parse(localStorage.getItem("user"));
-  const location = useLocation();
+  const user = JSON.parse(localStorage.getItem("user") || "null");
 
-  const cerrarSesion = () => {
-    localStorage.removeItem("user");
+  const handleLogout = () => {
+    localStorage.clear();
     window.location.href = "/";
   };
 
-  const linkClass = (path) =>
-    `transition p-4 rounded-xl text-sm font-medium ${
-      location.pathname === path
-        ? "bg-blue-700 text-white"
-        : "bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white"
-    }`;
-
   return (
-    <>
-      {/* Sidebar fijo — no se mueve con el scroll */}
-      <aside className="fixed top-0 left-0 w-64 h-screen bg-slate-900 text-white flex flex-col p-5 z-10">
-
-        {/* Logo */}
-        <div className="mb-8">
-          <h1 className="text-xl font-black tracking-tight">Sakila M1</h1>
-          <p className="text-slate-500 text-xs mt-1">Autenticación y perfiles</p>
+    <aside className="w-72 bg-slate-950 text-white min-h-screen p-6 flex flex-col justify-between border-r border-slate-800">
+      <div>
+        <div className="flex items-center gap-3 pb-6 border-b border-slate-800">
+          <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center font-black text-lg shadow-lg shadow-indigo-600/30">
+            S
+          </div>
+          <div>
+            <h1 className="text-lg font-black tracking-tight leading-none">
+              Sakila M1
+            </h1>
+            <p className="text-slate-500 text-xs mt-1">
+              Autenticación y perfiles
+            </p>
+          </div>
         </div>
 
-        {/* Navegación */}
-        <nav className="flex flex-col gap-2 flex-1">
-          <Link to="/dashboard" className={linkClass("/dashboard")}>Dashboard</Link>
-          <Link to="/perfil" className={linkClass("/perfil")}>Perfil Usuario</Link>
-          {user?.role === "ADMIN" && (
-            <Link to="/roles" className={linkClass("/roles")}>Roles y Permisos</Link>
-          )}
-          {(user?.role === "ADMIN" || user?.role === "MANAGER") && (
-            <Link to="/intrusos" className={linkClass("/intrusos")}>Monitoreo Intrusos</Link>
-          )}
-        </nav>
-
-        {/* Usuario y cerrar sesión — siempre pegado al fondo */}
-        <div className="border-t border-slate-700 pt-4 flex flex-col gap-3">
-          {user && (
-            <div className="flex items-center gap-3">
-              <div className="bg-blue-700 rounded-full w-9 h-9 flex items-center justify-center font-black text-sm shrink-0">
-                {user.first_name?.[0]}{user.last_name?.[0]}
-              </div>
-              <div className="min-w-0">
-                <p className="text-white font-semibold text-sm truncate">
-                  {user.first_name} {user.last_name}
-                </p>
-                <span className="text-xs text-slate-400">{user.role}</span>
-              </div>
-            </div>
-          )}
-          <button
-            onClick={cerrarSesion}
-            className="w-full bg-slate-800 hover:bg-red-700 transition p-3 rounded-xl text-sm font-semibold text-slate-300 hover:text-white"
+        <nav className="mt-8 flex flex-col gap-2">
+          <Link
+            to="/dashboard"
+            className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-900 hover:bg-indigo-600/10 hover:text-indigo-400 font-semibold transition text-slate-300"
           >
-            Cerrar sesión
+            Dashboard
+          </Link>
+
+          <Link
+            to="/perfil"
+            className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-900 hover:bg-indigo-600/10 hover:text-indigo-400 font-semibold transition text-slate-300"
+          >
+            <User size={18} />
+            Perfil Usuario
+          </Link>
+
+          <Link
+            to="/roles"
+            className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-900 hover:bg-indigo-600/10 hover:text-indigo-400 font-semibold transition text-slate-300"
+          >
+            <Key size={18} />
+            Roles y Permisos
+          </Link>
+
+          <Link
+            to="/intrusos"
+            className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-900 hover:bg-indigo-600/10 hover:text-indigo-400 font-semibold transition text-slate-300"
+          >
+            <AlertTriangle size={18} />
+            Monitoreo Intrusos
+          </Link>
+        </nav>
+      </div>
+
+      {/* Info de usuario logueado en la parte inferior */}
+      {user && (
+        <div className="pt-4 border-t border-slate-800 flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-slate-300">
+              {user.first_name[0]}{user.last_name[0]}
+            </div>
+            <div className="overflow-hidden">
+              <h4 className="font-bold text-sm text-slate-200 truncate leading-tight">
+                {user.first_name} {user.last_name}
+              </h4>
+              <span className="text-[10px] font-extrabold uppercase bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded border border-indigo-500/20 tracking-wider inline-block mt-0.5">
+                {user.role}
+              </span>
+            </div>
+          </div>
+
+          <button
+            onClick={handleLogout}
+            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-bold transition border border-red-500/10"
+          >
+            <LogOut size={14} /> Cerrar Sesión
           </button>
         </div>
-
-      </aside>
-
-      {/* Espaciador para que el contenido no quede debajo del sidebar fijo */}
-      <div className="w-64 shrink-0" />
-    </>
+      )}
+    </aside>
   );
 }

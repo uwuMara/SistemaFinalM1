@@ -166,3 +166,138 @@ def dashboard_stats():
         "intentos_bloqueados": intentos_bloqueados,
         "roles_registrados": roles_registrados
     }
+
+# ─────────────────────────────────────────────
+# ROLES Y PERMISOS — LECTURA
+# ─────────────────────────────────────────────
+
+@router.get("/roles")
+def get_roles_permisos():
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Traemos cada rol con su lista de permisos agrupada en JSON
+    # COALESCE garantiza que si un rol no tiene permisos retorne [] en vez de null
+    cur.execute("""
+        SELECT 
+            r.role_id,
+            r.role_name,
+            r.description,
+            COALESCE(
+                json_agg(
+                    json_build_object(
+                        'permission_id', p.permission_id,
+                        'permission_code', p.permission_code,
+                        'description', p.description
+                    )
+                ) FILTER (WHERE p.permission_id IS NOT NULL),
+                '[]'
+            ) as permissions
+        FROM roles r
+        LEFT JOIN role_permissions rp ON rp.role_id = r.role_id
+        LEFT JOIN permissions p ON p.permission_id = rp.permission_id
+        GROUP BY r.role_id, r.role_name, r.description
+        ORDER BY r.role_id
+    """)
+
+    roles = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    return [
+        {
+            "role_id": row[0],
+            "role_name": row[1],
+            "description": row[2],
+            "permissions": row[3]
+        }
+        for row in roles
+    ]
+
+
+# ─────────────────────────────────────────────
+# ROLES Y PERMISOS — TODOS LOS PERMISOS
+# Necesario para saber cuáles le faltan a un rol
+# ─────────────────────────────────────────────
+
+@router.get("/permisos")
+def get_todos_los_permisos():
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Traemos todos los permisos disponibles en el sistema
+    cur.execute("SELECT permission_id, permission_code, description FROM permissions ORDER BY permission_id")
+    permisos = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    return [
+        {
+            "permission_id": row[0],
+            "permission_code": row[1],
+            "description": row[2]
+        }
+        for row in permisos
+    ]
+
+
+# ─────────────────────────────────────────────
+# ROLES Y PERMISOS — AGREGAR PERMISO A UN ROL
+# Solo accesible para ADMIN desde el frontend
+# ─────────────────────────────────────────────
+
+@router.post("/roles/{role_id}/permisos/{permission_id}")
+def agregar_permiso(role_id: int, permission_id: int):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Verificamos que el rol exista
+    cur.execute("SELECT role_id FROM roles WHERE role_id = %s", (role_id,))
+    if not cur.fetchone():
+        raise HTTPException(status_code=404, detail="Rol no encontrado")
+
+    # Verificamos que el permiso exista
+    cur.execute("SELECT permission_id FROM permissions WHERE permission_id = %s", (permission_id,))
+    if not cur.fetchone():
+        raise HTTPException(status_code=404, detail="Permiso no encontrado")
+
+    # Insertamos la relación — ON CONFLICT evita duplicados
+    cur.execute("""
+        INSERT INTO role_permissions (role_id, permission_id)
+        VALUES (%s, %s)
+        ON CONFLICT DO NOTHING
+    """, (role_id, permission_id))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return {"message": "Permiso agregado correctamente"}
+
+
+# ─────────────────────────────────────────────
+# ROLES Y PERMISOS — QUITAR PERMISO DE UN ROL
+# Solo accesible para ADMIN desde el frontend
+# ─────────────────────────────────────────────
+
+@router.delete("/roles/{role_id}/permisos/{permission_id}")
+def quitar_permiso(role_id: int, permission_id: int):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Eliminamos la relación entre el rol y el permiso
+    cur.execute("""
+        DELETE FROM role_permissions
+        WHERE role_id = %s AND permission_id = %s
+    """, (role_id, permission_id))
+
+    # Si no se eliminó ninguna fila, el permiso no existía en ese rol
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail="El rol no tenía ese permiso")
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return {"message": "Permiso eliminado correctamente"}

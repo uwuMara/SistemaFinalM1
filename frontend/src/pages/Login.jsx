@@ -6,38 +6,39 @@ export default function Login() {
   const [password, setPassword] = useState("");
 
   const handleLogin = async (e) => {
-  e.preventDefault();
+    e.preventDefault();
 
-  if (!email || !password) {
-    alert("Completa todos los campos");
-    return;
-  }
-
-  try {
-    const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/login`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        email,
-        password,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      alert(data.detail || "Error al iniciar sesión");
+    if (!email || !password) {
+      alert("Completa todos los campos");
       return;
     }
 
-    localStorage.setItem("user", JSON.stringify(data.user));
-    window.location.href = "/dashboard";
-  } catch {
-    alert("No se pudo conectar con el backend");
-  }
-};
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          password,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        alert(data.detail || "Error al iniciar sesión");
+        return;
+      }
+
+      localStorage.setItem("user", JSON.stringify(data.user));
+      localStorage.setItem("session_id", JSON.stringify(data.session_id));
+      window.location.href = "/dashboard";
+    } catch {
+      alert("No se pudo conectar con el backend");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center px-4">

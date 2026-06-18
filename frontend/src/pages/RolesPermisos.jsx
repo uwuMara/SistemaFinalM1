@@ -10,6 +10,22 @@ const ROL_CONFIG = {
   STAFF:   { icon: UserCheck,   color: "bg-slate-600",   badge: "bg-slate-100 text-slate-600" },
 };
 
+// ─────────────────────────────────────────────
+// Headers con el session_id que exige el backend
+// para validar que el usuario tenga sesión activa
+// ─────────────────────────────────────────────
+const authHeaders = () => {
+  // El login guarda session_id con JSON.stringify, así que hay que parsearlo
+  const raw = localStorage.getItem("session_id");
+  if (!raw) return {};
+  try {
+    const sessionId = JSON.parse(raw);
+    return sessionId ? { "X-Session-Id": sessionId } : {};
+  } catch {
+    return raw ? { "X-Session-Id": raw } : {};
+  }
+};
+
 export default function RolesPermisos() {
   const user = JSON.parse(localStorage.getItem("user"));
 
@@ -21,26 +37,29 @@ export default function RolesPermisos() {
   const [confirmar, setConfirmar]               = useState(null);
   const [mensaje, setMensaje]                   = useState(null);
 
-  // Protección de ruta: solo ADMIN puede ver esta pantalla
-  if (!user)                 return <Navigate to="/" replace />;
-  if (user.role !== "ADMIN") return <Navigate to="/dashboard" replace />;
-
-  // Mensaje temporal de feedback — declarado ANTES del useEffect
+  // Mensaje temporal de feedback
   const mostrarMensaje = (tipo, texto) => {
     setMensaje({ tipo, texto });
     setTimeout(() => setMensaje(null), 3000);
   };
 
   // Carga inicial: función async declarada dentro del useEffect
-  // para evitar el warning de setState en efecto
-  // eslint-disable-next-line react-hooks/rules-of-hooks
+  // Los hooks SIEMPRE deben ir antes de cualquier return condicional
   useEffect(() => {
     async function cargar() {
       try {
         const [resRoles, resPermisos] = await Promise.all([
-          fetch(`${import.meta.env.VITE_API_URL}/auth/roles`),
-          fetch(`${import.meta.env.VITE_API_URL}/auth/permisos`),
+          fetch(`${import.meta.env.VITE_API_URL}/auth/roles`, { headers: authHeaders() }),
+          fetch(`${import.meta.env.VITE_API_URL}/auth/permisos`, { headers: authHeaders() }),
         ]);
+
+        // Si el backend rechaza por sesión inválida o rol incorrecto
+        if (resRoles.status === 401 || resRoles.status === 403) {
+          setMensaje({ tipo: "error", texto: "No tienes permiso para ver esta sección" });
+          setCargando(false);
+          return;
+        }
+
         const dataRoles    = await resRoles.json();
         const dataPermisos = await resPermisos.json();
         setRoles(dataRoles);
@@ -58,7 +77,7 @@ export default function RolesPermisos() {
 
   // Recarga roles tras agregar o quitar un permiso
   const recargarRoles = async (roleIdActivo) => {
-    const res      = await fetch(`${import.meta.env.VITE_API_URL}/auth/roles`);
+    const res      = await fetch(`${import.meta.env.VITE_API_URL}/auth/roles`, { headers: authHeaders() });
     const dataRoles = await res.json();
     setRoles(dataRoles);
     setRolSeleccionado(dataRoles.find(r => r.role_id === roleIdActivo) || dataRoles[0]);
@@ -69,7 +88,7 @@ export default function RolesPermisos() {
     try {
       const res = await fetch(
         `${import.meta.env.VITE_API_URL}/auth/roles/${rolSeleccionado.role_id}/permisos/${permission_id}`,
-        { method: "POST" }
+        { method: "POST", headers: authHeaders() }
       );
       if (!res.ok) throw new Error();
       mostrarMensaje("ok", "Permiso agregado correctamente");
@@ -85,7 +104,7 @@ export default function RolesPermisos() {
     try {
       const res = await fetch(
         `${import.meta.env.VITE_API_URL}/auth/roles/${confirmar.role_id}/permisos/${confirmar.permission_id}`,
-        { method: "DELETE" }
+        { method: "DELETE", headers: authHeaders() }
       );
       if (!res.ok) throw new Error();
       mostrarMensaje("ok", "Permiso eliminado correctamente");
@@ -104,6 +123,11 @@ export default function RolesPermisos() {
     return todosLosPermisos.filter(p => !tieneIds.has(p.permission_id));
   };
 
+  // Protección de ruta: solo ADMIN puede ver esta pantalla
+  // Va DESPUÉS de todos los hooks y funciones
+  if (!user)                 return <Navigate to="/" replace />;
+  if (user.role !== "ADMIN") return <Navigate to="/dashboard" replace />;
+
   return (
     <DashboardLayout>
 
@@ -115,21 +139,29 @@ export default function RolesPermisos() {
         </p>
       </div>
 
-      {/* Feedback de acciones */}
+      {/* Feedback de acciones — role="status" para lectores de pantalla */}
       {mensaje && (
-        <div className={`mb-6 px-5 py-3 rounded-xl font-semibold text-sm ${
-          mensaje.tipo === "ok" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
-        }`}>
+        <div
+          role="status"
+          aria-live="polite"
+          className={`mb-6 px-5 py-3 rounded-xl font-semibold text-sm ${
+            mensaje.tipo === "ok" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+          }`}
+        >
           {mensaje.tipo === "ok" ? "✓ " : "✗ "}{mensaje.texto}
         </div>
       )}
 
       {cargando ? (
-        <p className="text-slate-400">Cargando roles...</p>
+        <p className="text-slate-400" role="status" aria-live="polite">Cargando roles...</p>
       ) : (
         <>
           {/* Tarjetas de roles — al hacer clic cambia la tabla */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+          <div
+            className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10"
+            role="tablist"
+            aria-label="Selector de rol"
+          >
             {roles.map((rol) => {
               const config    = ROL_CONFIG[rol.role_name] || ROL_CONFIG.STAFF;
               const Icono     = config.icon;
@@ -138,11 +170,14 @@ export default function RolesPermisos() {
                 <button
                   key={rol.role_id}
                   onClick={() => setRolSeleccionado(rol)}
-                  className={`text-left p-6 rounded-2xl shadow transition ${
+                  role="tab"
+                  aria-selected={estaActivo}
+                  aria-label={`Ver permisos de ${rol.role_name}, ${rol.permissions.length} permisos asignados`}
+                  className={`text-left p-6 rounded-2xl shadow transition focus:outline-none focus:ring-4 focus:ring-blue-300 ${
                     estaActivo ? "ring-4 ring-blue-400 bg-white scale-105" : "bg-white hover:shadow-lg"
                   }`}
                 >
-                  <div className={`${config.color} text-white p-3 rounded-xl w-fit mb-4`}>
+                  <div className={`${config.color} text-white p-3 rounded-xl w-fit mb-4`} aria-hidden="true">
                     <Icono size={24} />
                   </div>
                   <h2 className="text-xl font-black text-slate-800">{rol.role_name}</h2>
@@ -159,22 +194,23 @@ export default function RolesPermisos() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
               {/* Permisos activos del rol */}
-              <div className="bg-white rounded-2xl shadow p-6">
+              <div className="bg-white rounded-2xl shadow p-6" role="region" aria-label={`Permisos activos de ${rolSeleccionado.role_name}`}>
                 <h2 className="text-xl font-black text-slate-800 mb-1">
                   Permisos activos — {rolSeleccionado.role_name}
                 </h2>
                 <p className="text-slate-400 text-sm mb-6">
-                  {rolSeleccionado.permissions.length} permisos asignados. Haz clic en 🗑 para quitar uno.
+                  {rolSeleccionado.permissions.length} permisos asignados. Haz clic en el icono de papelera para quitar uno.
                 </p>
                 {rolSeleccionado.permissions.length === 0 ? (
                   <p className="text-slate-400 text-sm">Este rol no tiene permisos asignados.</p>
                 ) : (
                   <table className="w-full text-sm">
+                    <caption className="sr-only">Tabla de permisos activos de {rolSeleccionado.role_name}</caption>
                     <thead>
                       <tr className="border-b border-slate-200 text-slate-500 text-left">
-                        <th className="pb-3 font-semibold">Código</th>
-                        <th className="pb-3 font-semibold">Descripción</th>
-                        <th className="pb-3 font-semibold text-center">Quitar</th>
+                        <th scope="col" className="pb-3 font-semibold">Código</th>
+                        <th scope="col" className="pb-3 font-semibold">Descripción</th>
+                        <th scope="col" className="pb-3 font-semibold text-center">Quitar</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -192,10 +228,10 @@ export default function RolesPermisos() {
                                 permission_id: permiso.permission_id,
                                 permission_code: permiso.permission_code,
                               })}
-                              className="text-red-400 hover:text-red-600 transition"
-                              title="Quitar permiso"
+                              className="text-red-400 hover:text-red-600 transition focus:outline-none focus:ring-2 focus:ring-red-400 rounded p-1"
+                              aria-label={`Quitar permiso ${permiso.permission_code} de ${rolSeleccionado.role_name}`}
                             >
-                              <Trash2 size={16} />
+                              <Trash2 size={16} aria-hidden="true" />
                             </button>
                           </td>
                         </tr>
@@ -206,12 +242,12 @@ export default function RolesPermisos() {
               </div>
 
               {/* Permisos disponibles para agregar */}
-              <div className="bg-white rounded-2xl shadow p-6">
+              <div className="bg-white rounded-2xl shadow p-6" role="region" aria-label={`Permisos disponibles para ${rolSeleccionado.role_name}`}>
                 <h2 className="text-xl font-black text-slate-800 mb-1">
                   Permisos disponibles
                 </h2>
                 <p className="text-slate-400 text-sm mb-6">
-                  Permisos que {rolSeleccionado.role_name} aún no tiene. Haz clic en + para agregar.
+                  Permisos que {rolSeleccionado.role_name} aún no tiene. Haz clic en el icono de más para agregar.
                 </p>
                 {permisosDisponibles().length === 0 ? (
                   <p className="text-sm text-emerald-600 font-semibold">
@@ -219,11 +255,12 @@ export default function RolesPermisos() {
                   </p>
                 ) : (
                   <table className="w-full text-sm">
+                    <caption className="sr-only">Tabla de permisos disponibles para {rolSeleccionado.role_name}</caption>
                     <thead>
                       <tr className="border-b border-slate-200 text-slate-500 text-left">
-                        <th className="pb-3 font-semibold">Código</th>
-                        <th className="pb-3 font-semibold">Descripción</th>
-                        <th className="pb-3 font-semibold text-center">Agregar</th>
+                        <th scope="col" className="pb-3 font-semibold">Código</th>
+                        <th scope="col" className="pb-3 font-semibold">Descripción</th>
+                        <th scope="col" className="pb-3 font-semibold text-center">Agregar</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -237,10 +274,10 @@ export default function RolesPermisos() {
                             {/* Agrega el permiso al rol directamente */}
                             <button
                               onClick={() => agregarPermiso(permiso.permission_id)}
-                              className="text-emerald-500 hover:text-emerald-700 transition"
-                              title="Agregar permiso"
+                              className="text-emerald-500 hover:text-emerald-700 transition focus:outline-none focus:ring-2 focus:ring-emerald-400 rounded p-1"
+                              aria-label={`Agregar permiso ${permiso.permission_code} a ${rolSeleccionado.role_name}`}
                             >
-                              <Plus size={18} />
+                              <Plus size={18} aria-hidden="true" />
                             </button>
                           </td>
                         </tr>
@@ -257,13 +294,18 @@ export default function RolesPermisos() {
 
       {/* Modal de confirmación para quitar permiso */}
       {confirmar && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-titulo"
+        >
           <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4">
             <div className="flex items-center gap-3 mb-4">
-              <div className="bg-red-100 text-red-600 p-3 rounded-xl">
+              <div className="bg-red-100 text-red-600 p-3 rounded-xl" aria-hidden="true">
                 <AlertTriangle size={24} />
               </div>
-              <h3 className="text-lg font-black text-slate-800">¿Quitar permiso?</h3>
+              <h3 id="modal-titulo" className="text-lg font-black text-slate-800">¿Quitar permiso?</h3>
             </div>
             <p className="text-slate-600 text-sm mb-6">
               Estás a punto de quitar{" "}
@@ -274,13 +316,14 @@ export default function RolesPermisos() {
             <div className="flex gap-3">
               <button
                 onClick={() => setConfirmar(null)}
-                className="flex-1 border border-slate-300 text-slate-600 py-2 rounded-xl font-semibold hover:bg-slate-50 transition"
+                autoFocus
+                className="flex-1 border border-slate-300 text-slate-600 py-2 rounded-xl font-semibold hover:bg-slate-50 transition focus:outline-none focus:ring-2 focus:ring-slate-400"
               >
                 Cancelar
               </button>
               <button
                 onClick={quitarPermiso}
-                className="flex-1 bg-red-500 text-white py-2 rounded-xl font-semibold hover:bg-red-600 transition"
+                className="flex-1 bg-red-500 text-white py-2 rounded-xl font-semibold hover:bg-red-600 transition focus:outline-none focus:ring-2 focus:ring-red-400"
               >
                 Sí, quitar
               </button>

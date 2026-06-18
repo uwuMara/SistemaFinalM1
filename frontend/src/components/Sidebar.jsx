@@ -4,8 +4,23 @@ import { User, Shield, Key, AlertTriangle, LogOut } from "lucide-react";
 export default function Sidebar() {
   const user = JSON.parse(localStorage.getItem("user") || "null");
 
-  const handleLogout = () => {
-    localStorage.clear();
+  const handleLogout = async () => {
+    const rawSessionId = localStorage.getItem("session_id");
+    const sessionId = rawSessionId ? rawSessionId.replace(/['"]+/g, '') : null;
+    if (sessionId) {
+      try {
+        await fetch(`${import.meta.env.VITE_API_URL}/auth/logout`, {
+          method: "POST",
+          headers: {
+            "X-Session-Id": sessionId
+          }
+        });
+      } catch (err) {
+        console.error("Error al cerrar sesión en el servidor:", err);
+      }
+    }
+    localStorage.removeItem("user");
+    localStorage.removeItem("session_id");
     window.location.href = "/";
   };
 

@@ -12,7 +12,17 @@ export default function Dashboard() {
   });
 
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_URL}/auth/dashboard/stats`)
+    const rawSessionId = localStorage.getItem("session_id");
+    const sessionId = rawSessionId ? rawSessionId.replace(/['"]+/g, '') : null;
+    if (!sessionId) return;
+
+    fetch(`${import.meta.env.VITE_API_URL}/auth/dashboard/stats`,
+      {
+        headers: {
+          "X-Session-Id": sessionId
+        }
+      }
+    )
       .then((res) => res.json())
       .then((data) => setStats(data))
       .catch((err) => console.error(err));

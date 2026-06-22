@@ -132,3 +132,35 @@ def revoke_session(session_id: str, current_staff_id: int = Depends(get_current_
     conn.close()
 
     return {"message": f"Sesión {session_id} revocada y usuario desactivado correctamente"}
+
+
+@router.get("/validate-session")
+def validate_session(staff_id: int = Depends(get_current_active_session)):
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT s.staff_id, s.email, s.first_name, s.last_name, r.role_name
+            FROM staff s
+            JOIN staff_auth sa ON s.staff_id = sa.staff_id
+            JOIN roles r ON sa.role_id = r.role_id
+            WHERE s.staff_id = %s
+        """, (staff_id,))
+        row = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    return {
+        "valid": True,
+        "user": {
+            "staff_id": row[0],
+            "email": row[1],
+            "first_name": row[2],
+            "last_name": row[3],
+            "role": row[4]
+        }
+    }

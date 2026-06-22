@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes.auth import router as auth_router
 from app.routes.perfilusuario import router as perfil_router
+from app.routes.MonitoreoIntrusos import router as monitoreo_router
 
 app = FastAPI(title="SistemaFinalM1 - Backend")
 
@@ -15,6 +16,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(perfil_router)
+app.include_router(monitoreo_router)
 
 @app.get("/")
 def home():

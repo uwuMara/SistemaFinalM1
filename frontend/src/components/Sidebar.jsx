@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { User, Shield, Key, AlertTriangle, LogOut } from "lucide-react";
+import { User, Key, AlertTriangle, LogOut } from "lucide-react";
 
 export default function Sidebar() {
   const user = JSON.parse(localStorage.getItem("user") || "null");
@@ -42,13 +42,16 @@ export default function Sidebar() {
             Perfil Usuario
           </Link>
 
-          <Link
-            to="/roles"
-            className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-900 hover:bg-indigo-600/10 hover:text-indigo-400 font-semibold transition text-slate-300"
-          >
-            <Key size={18} />
-            Roles y Permisos
-          </Link>
+          {/* Roles y Permisos — solo visible para ADMIN */}
+          {user?.role === "ADMIN" && (
+            <Link
+              to="/roles"
+              className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-900 hover:bg-indigo-600/10 hover:text-indigo-400 font-semibold transition text-slate-300"
+            >
+              <Key size={18} />
+              Roles y Permisos
+            </Link>
+          )}
 
           <Link
             to="/intrusos"

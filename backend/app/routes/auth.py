@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Path
 from pydantic import BaseModel
 from app.db.connection import get_connection
-from app.dependencies import get_current_active_session
+from app.services import roles_service
 
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
 
@@ -249,150 +249,59 @@ def revoke_session(session_id: str):
 
     return {"message": f"Sesión {session_id} revocada correctamente"}
 
-def verificar_admin(staff_id: int):
-    """
-    Verifica que el staff_id pertenezca a un usuario con rol ADMIN.
-    Lanza 403 si no lo es. Se usa en cada endpoint sensible de roles.
-    """
-    conn = get_connection()
-    cur = conn.cursor()
+# ─────────────────────────────────────────────
+# ROLES Y PERMISOS — KRISTELL
+# El router solo recibe la petición HTTP y delega
+# toda la lógica al service. Mismo patrón que usa
+# el equipo en login (routes → services → repositories).
+# ─────────────────────────────────────────────
 
-    cur.execute("""
-        SELECT r.role_name
-        FROM staff_auth sa
-        JOIN roles r ON r.role_id = sa.role_id
-        WHERE sa.staff_id = %s
-    """, (staff_id,))
-
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-
-    if not row or row[0] != "ADMIN":
-        raise HTTPException(
-            status_code=403,
-            detail="Solo un administrador puede gestionar roles y permisos"
-        )
+# Schema de respuesta para un único permiso dentro de un rol.
+# Documenta el contrato exacto que devuelve la API (visible en /docs).
+class PermisoOut(BaseModel):
+    permission_id: int
+    permission_code: str
+    description: str
 
 
-@router.get("/roles")
+# Schema de respuesta para un rol con su lista de permisos.
+class RolOut(BaseModel):
+    role_id: int
+    role_name: str
+    description: str
+    permissions: list[PermisoOut]
+
+
+# Schema de respuesta genérico para confirmar una acción (agregar/quitar).
+class MensajeOut(BaseModel):
+    message: str
+
+
+@router.get("/roles", response_model=list[RolOut])
 def get_roles_permisos():
-    """Retorna todos los roles con sus permisos. Protegido en el frontend por rol ADMIN."""
-
-    conn = get_connection()
-    cur = conn.cursor()
-
-    # Traemos cada rol con su lista de permisos agrupada en JSON
-    # COALESCE garantiza que si un rol no tiene permisos retorne [] en vez de null
-    cur.execute("""
-        SELECT 
-            r.role_id,
-            r.role_name,
-            r.description,
-            COALESCE(
-                json_agg(
-                    json_build_object(
-                        'permission_id', p.permission_id,
-                        'permission_code', p.permission_code,
-                        'description', p.description
-                    )
-                ) FILTER (WHERE p.permission_id IS NOT NULL),
-                '[]'
-            ) as permissions
-        FROM roles r
-        LEFT JOIN role_permissions rp ON rp.role_id = r.role_id
-        LEFT JOIN permissions p ON p.permission_id = rp.permission_id
-        GROUP BY r.role_id, r.role_name, r.description
-        ORDER BY r.role_id
-    """)
-
-    roles = cur.fetchall()
-    cur.close()
-    conn.close()
-
-    return [
-        {
-            "role_id": row[0],
-            "role_name": row[1],
-            "description": row[2],
-            "permissions": row[3]
-        }
-        for row in roles
-    ]
+    """Retorna todos los roles con sus permisos."""
+    return roles_service.get_roles_with_permissions()
 
 
-@router.get("/permisos")
+@router.get("/permisos", response_model=list[PermisoOut])
 def get_todos_los_permisos():
-    """Retorna todos los permisos disponibles. Protegido en el frontend por rol ADMIN."""
-
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute("SELECT permission_id, permission_code, description FROM permissions ORDER BY permission_id")
-    permisos = cur.fetchall()
-    cur.close()
-    conn.close()
-
-    return [
-        {
-            "permission_id": row[0],
-            "permission_code": row[1],
-            "description": row[2]
-        }
-        for row in permisos
-    ]
+    """Retorna todos los permisos disponibles en el sistema."""
+    return roles_service.get_all_permissions()
 
 
-@router.post("/roles/{role_id}/permisos/{permission_id}")
-def agregar_permiso(role_id: int, permission_id: int):
-    """Agrega un permiso a un rol. Protegido en el frontend por rol ADMIN."""
-
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute("SELECT role_id FROM roles WHERE role_id = %s", (role_id,))
-    if not cur.fetchone():
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=404, detail="Rol no encontrado")
-
-    cur.execute("SELECT permission_id FROM permissions WHERE permission_id = %s", (permission_id,))
-    if not cur.fetchone():
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=404, detail="Permiso no encontrado")
-
-    # ON CONFLICT evita duplicados si el permiso ya está asignado
-    cur.execute("""
-        INSERT INTO role_permissions (role_id, permission_id)
-        VALUES (%s, %s)
-        ON CONFLICT DO NOTHING
-    """, (role_id, permission_id))
-
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"message": "Permiso agregado correctamente"}
+@router.post("/roles/{role_id}/permisos/{permission_id}", response_model=MensajeOut)
+def agregar_permiso(
+    role_id: int = Path(..., gt=0, description="ID del rol, debe ser positivo"),
+    permission_id: int = Path(..., gt=0, description="ID del permiso, debe ser positivo"),
+):
+    """Agrega un permiso a un rol. Valida que ambos IDs sean enteros positivos."""
+    return roles_service.assign_permission(role_id, permission_id)
 
 
-@router.delete("/roles/{role_id}/permisos/{permission_id}")
-def quitar_permiso(role_id: int, permission_id: int):
-    """Elimina un permiso de un rol. Protegido en el frontend por rol ADMIN."""
-
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute("""
-        DELETE FROM role_permissions
-        WHERE role_id = %s AND permission_id = %s
-    """, (role_id, permission_id))
-
-    if cur.rowcount == 0:
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=404, detail="El rol no tenía ese permiso")
-
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"message": "Permiso eliminado correctamente"}
+@router.delete("/roles/{role_id}/permisos/{permission_id}", response_model=MensajeOut)
+def quitar_permiso(
+    role_id: int = Path(..., gt=0, description="ID del rol, debe ser positivo"),
+    permission_id: int = Path(..., gt=0, description="ID del permiso, debe ser positivo"),
+):
+    """Elimina un permiso de un rol. Valida que ambos IDs sean enteros positivos."""
+    return roles_service.revoke_permission(role_id, permission_id)

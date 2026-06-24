@@ -49,8 +49,8 @@ export default function RolesPermisos() {
     async function cargar() {
       try {
         const [resRoles, resPermisos] = await Promise.all([
-          fetch(`${import.meta.env.VITE_API_URL}/auth/roles`, { headers: authHeaders() }),
-          fetch(`${import.meta.env.VITE_API_URL}/auth/permisos`, { headers: authHeaders() }),
+          fetch(`${import.meta.env.VITE_API_URL}/roles/`, { headers: authHeaders() }),
+          fetch(`${import.meta.env.VITE_API_URL}/roles/permisos`, { headers: authHeaders() })
         ]);
 
         // Si el backend rechaza por sesión inválida o rol incorrecto
@@ -77,7 +77,7 @@ export default function RolesPermisos() {
 
   // Recarga roles tras agregar o quitar un permiso
   const recargarRoles = async (roleIdActivo) => {
-    const res      = await fetch(`${import.meta.env.VITE_API_URL}/auth/roles`, { headers: authHeaders() });
+    const res      = await fetch(`${import.meta.env.VITE_API_URL}/roles`, { headers: authHeaders() });
     const dataRoles = await res.json();
     setRoles(dataRoles);
     setRolSeleccionado(dataRoles.find(r => r.role_id === roleIdActivo) || dataRoles[0]);
@@ -87,7 +87,7 @@ export default function RolesPermisos() {
   const agregarPermiso = async (permission_id) => {
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/auth/roles/${rolSeleccionado.role_id}/permisos/${permission_id}`,
+        `${import.meta.env.VITE_API_URL}/roles/${rolSeleccionado.role_id}/permisos/${permission_id}`,
         { method: "POST", headers: authHeaders() }
       );
       if (!res.ok) throw new Error();
@@ -103,7 +103,7 @@ export default function RolesPermisos() {
     if (!confirmar) return;
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/auth/roles/${confirmar.role_id}/permisos/${confirmar.permission_id}`,
+        `${import.meta.env.VITE_API_URL}/roles/${confirmar.role_id}/permisos/${confirmar.permission_id}`,
         { method: "DELETE", headers: authHeaders() }
       );
       if (!res.ok) throw new Error();

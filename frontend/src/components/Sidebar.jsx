@@ -33,7 +33,7 @@ export default function Sidebar() {
           </div>
           <div>
             <h1 className="text-lg font-black tracking-tight leading-none">
-              Sakila M1
+              Sakila
             </h1>
             <p className="text-slate-500 text-xs mt-1">
               Autenticación y perfiles

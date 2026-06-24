@@ -68,13 +68,16 @@ export default function Sidebar() {
             </Link>
           )}
 
-          <Link
-            to="/intrusos"
-            className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-900 hover:bg-indigo-600/10 hover:text-indigo-400 font-semibold transition text-slate-300"
-          >
-            <AlertTriangle size={18} />
-            Monitoreo Intrusos
-          </Link>
+          {/* Roles y Permisos — solo visible para ADMIN */}
+          {user?.role === "ADMIN" && (
+            <Link
+              to="/intrusos"
+              className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-900 hover:bg-indigo-600/10 hover:text-indigo-400 font-semibold transition text-slate-300"
+            >
+              <AlertTriangle size={18} />
+              Monitoreo Intrusos
+            </Link>
+          )}
         </nav>
       </div>
 

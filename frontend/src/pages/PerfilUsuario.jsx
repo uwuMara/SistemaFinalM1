@@ -4,7 +4,6 @@ import {
   Calendar, Key, Save, AlertCircle, CheckCircle2, LogOut, ChevronRight
 } from "lucide-react";
 import DashboardLayout from "../layouts/DashboardLayout";
-import { encryptJSON, decryptJSON } from "../utils/crypto";
 
 export default function PerfilUsuario() {
   const [activeTab, setActiveTab] = useState("datos");
@@ -51,6 +50,15 @@ export default function PerfilUsuario() {
   const storedUser = JSON.parse(localStorage.getItem("user") || "null");
   const staffId = storedUser?.staff_id;
 
+  // Obtener o generar session_id
+  let sessionId = localStorage.getItem("session_id");
+  if (sessionId) {
+    sessionId = sessionId.replace(/['"]+/g, '');
+  } else if (staffId) {
+    sessionId = `session-auto-created-${staffId}`;
+    localStorage.setItem("session_id", sessionId);
+  }
+
   useEffect(() => {
     if (!staffId) {
       window.location.href = "/";
@@ -62,40 +70,42 @@ export default function PerfilUsuario() {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Formatear payload cifrado para peticiones GET (query string)
-      const payloadVal = encryptJSON({ staff_id: staffId });
-      const encodedPayload = encodeURIComponent(payloadVal);
-
       // 1. Obtener perfil (GET)
-      const profRes = await fetch(`${API_URL}/auth/profile?payload=${encodedPayload}`);
+      const profRes = await fetch(`${API_URL}/auth/profile`, {
+        headers: {
+          "X-Session-Id": sessionId
+        }
+      });
       if (!profRes.ok) throw new Error("No se pudo cargar el perfil");
-      const resJson = await profRes.json();
-      const profData = resJson.payload ? decryptJSON(resJson.payload) : resJson;
+      const profData = await profRes.json();
       setProfile(profData);
 
       // 2. Obtener ciudades para el combobox (GET)
       const citiesRes = await fetch(`${API_URL}/auth/cities`);
       if (citiesRes.ok) {
-        const citiesJson = await citiesRes.json();
-        const citiesData = citiesJson.payload ? decryptJSON(citiesJson.payload) : citiesJson;
+        const citiesData = await citiesRes.json();
         setCities(citiesData);
       }
 
       // 3. Obtener auditoría (GET)
-      const auditRes = await fetch(`${API_URL}/auth/profile/audit?payload=${encodedPayload}`);
+      const auditRes = await fetch(`${API_URL}/auth/profile/audit`, {
+        headers: {
+          "X-Session-Id": sessionId
+        }
+      });
       if (auditRes.ok) {
-        const auditJson = await auditRes.json();
-        const auditData = auditJson.payload ? decryptJSON(auditJson.payload) : auditJson;
+        const auditData = await auditRes.json();
         setAudits(auditData);
       }
 
       // 4. Obtener sesiones activas (GET)
-      // Se pasa una sesión actual dummy ya que la sesión se audita en la BD
-      const sessionsPayload = encryptJSON({ staff_id: staffId, current_session_id: "current-dummy-session" });
-      const sessRes = await fetch(`${API_URL}/auth/profile/sessions?payload=${encodeURIComponent(sessionsPayload)}`);
+      const sessRes = await fetch(`${API_URL}/auth/profile/sessions`, {
+        headers: {
+          "X-Session-Id": sessionId
+        }
+      });
       if (sessRes.ok) {
-        const sessJson = await sessRes.json();
-        const sessData = sessJson.payload ? decryptJSON(sessJson.payload) : sessJson;
+        const sessData = await sessRes.json();
         setSessions(sessData);
       }
 
@@ -120,27 +130,25 @@ export default function PerfilUsuario() {
     e.preventDefault();
     setSubmitting(true);
     try {
-      const encryptedBody = encryptJSON({
-        staff_id: staffId,
-        first_name: profile.first_name,
-        last_name: profile.last_name,
-        email: profile.email,
-        username: profile.username,
-        phone: profile.phone,
-        address: profile.address,
-        address2: profile.address2,
-        district: profile.district,
-        postal_code: profile.postal_code,
-        city_id: parseInt(profile.city_id)
-      });
-      
       // Llamada POST para actualizar
       const response = await fetch(`${API_URL}/auth/profile/update`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "X-Session-Id": sessionId
         },
-        body: JSON.stringify({ payload: encryptedBody })
+        body: JSON.stringify({
+          first_name: profile.first_name,
+          last_name: profile.last_name,
+          email: profile.email,
+          username: profile.username,
+          phone: profile.phone,
+          address: profile.address,
+          address2: profile.address2,
+          district: profile.district,
+          postal_code: profile.postal_code,
+          city_id: parseInt(profile.city_id)
+        })
       });
 
       const resJson = await response.json();
@@ -178,19 +186,17 @@ export default function PerfilUsuario() {
 
     setSubmitting(true);
     try {
-      const encryptedBody = encryptJSON({
-        staff_id: staffId,
-        old_password: passwordForm.old_password,
-        new_password: passwordForm.new_password
-      });
-      
       // Llamada POST para cambiar contraseña
       const response = await fetch(`${API_URL}/auth/change-password`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "X-Session-Id": sessionId
         },
-        body: JSON.stringify({ payload: encryptedBody })
+        body: JSON.stringify({
+          old_password: passwordForm.old_password,
+          new_password: passwordForm.new_password
+        })
       });
 
       const resJson = await response.json();
@@ -206,18 +212,19 @@ export default function PerfilUsuario() {
     }
   };
 
-  const handleRevokeSession = async (sessionId) => {
+  const handleRevokeSession = async (targetSessionId) => {
     if (!confirm("¿Estás seguro de que deseas cerrar esta sesión? El dispositivo perderá el acceso inmediatamente.")) return;
     try {
-      const encryptedBody = encryptJSON({ staff_id: staffId, session_id: sessionId });
-      
       // Llamada POST para revocar
       const response = await fetch(`${API_URL}/auth/profile/sessions/revoke`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "X-Session-Id": sessionId
         },
-        body: JSON.stringify({ payload: encryptedBody })
+        body: JSON.stringify({
+          session_id: targetSessionId
+        })
       });
 
       if (!response.ok) {

@@ -164,3 +164,33 @@ def validate_session(staff_id: int = Depends(get_current_active_session)):
             "role": row[4]
         }
     }
+
+
+@router.get("/audit")
+def get_audit(staff_id: int = Depends(get_current_active_session)):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT login_id, staff_id, username, ip_address, user_agent, success, reason, attempted_at
+        FROM login_audit
+        ORDER BY attempted_at DESC
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    
+    audits = []
+    for row in rows:
+        audits.append({
+            "login_id": row[0],
+            "staff_id": row[1],
+            "username": row[2],
+            "ip_address": row[3] if row[3] else "Desconocido",
+            "user_agent": row[4] if row[4] else "Desconocido",
+            "success": row[5],
+            "reason": row[6],
+            "attempted_at": str(row[7]) if row[7] else None
+        })
+        
+    return audits
+

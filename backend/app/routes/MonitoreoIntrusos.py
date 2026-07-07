@@ -194,3 +194,109 @@ def get_audit(staff_id: int = Depends(get_current_active_session)):
         
     return audits
 
+
+@router.get("/intrusion-alerts")
+def get_intrusion_alerts(staff_id: int = Depends(get_current_active_session)):
+    conn = get_connection()
+    cur = conn.cursor()
+    
+    # 1. IPs sospechosas (con 5 o más intentos fallidos en login_audit)
+    cur.execute("""
+        SELECT 
+            ip_address,
+            COUNT(*) as failed_attempts,
+            MAX(attempted_at) as last_attempt,
+            array_to_string(array_agg(DISTINCT username), ', ') as usernames
+        FROM login_audit
+        WHERE success = false
+        GROUP BY ip_address
+        HAVING COUNT(*) >= 5
+        ORDER BY failed_attempts DESC, last_attempt DESC
+    """)
+    suspicious_rows = cur.fetchall()
+    
+    suspicious_ips = []
+    for row in suspicious_rows:
+        suspicious_ips.append({
+            "ip_address": row[0] if row[0] else "Desconocido",
+            "failed_attempts": row[1],
+            "last_attempt": str(row[2]) if row[2] else None,
+            "usernames": row[3]
+        })
+        
+    # 2. Eventos de intrusión registrados en intrusion_events
+    cur.execute("""
+        SELECT intrusion_id, username, ip_address, severity, reason, blocked_until, status, created_at
+        FROM intrusion_events
+        ORDER BY created_at DESC
+    """)
+    event_rows = cur.fetchall()
+    
+    events = []
+    for row in event_rows:
+        events.append({
+            "intrusion_id": row[0],
+            "username": row[1] if row[1] else "N/A",
+            "ip_address": row[2] if row[2] else "Desconocido",
+            "severity": row[3],
+            "reason": row[4],
+            "blocked_until": str(row[5]) if row[5] else None,
+            "status": row[6],
+            "created_at": str(row[7]) if row[7] else None
+        })
+        
+    cur.close()
+    conn.close()
+    
+    return {
+        "suspicious_ips": suspicious_ips,
+        "events": events
+    }
+
+
+@router.post("/intrusion-events/{intrusion_id}/resolve")
+def resolve_intrusion_event(intrusion_id: int, staff_id: int = Depends(get_current_active_session)):
+    conn = get_connection()
+    cur = conn.cursor()
+    
+    # Verificar si el evento existe y obtener sus detalles
+    cur.execute("""
+        SELECT username, reason 
+        FROM intrusion_events 
+        WHERE intrusion_id = %s
+    """, (intrusion_id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Evento de intrusión no encontrado")
+        
+    username, reason = row
+        
+    # Actualizar estado a RESOLVED
+    cur.execute("""
+        UPDATE intrusion_events
+        SET status = 'RESOLVED'
+        WHERE intrusion_id = %s
+    """, (intrusion_id,))
+    
+    # Si la razón indica intentos fallidos y hay un correo de usuario, lo reactivamos
+    if username and reason and "intentos fallidos" in reason.lower():
+        cur.execute("""
+            UPDATE staff_auth
+            SET is_active = true, failed_attempts = 0, locked_until = NULL
+            WHERE staff_id = (
+                SELECT staff_id 
+                FROM staff 
+                WHERE email = %s
+            )
+        """, (username,))
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    return {"message": f"Evento de intrusión {intrusion_id} marcado como resuelto. Cuenta reactivada si estaba bloqueada."}
+
+
+

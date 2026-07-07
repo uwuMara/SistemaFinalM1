@@ -31,7 +31,8 @@ def login(data: LoginRequest, request: Request):
             sa.locked_until,
             s.first_name,
             s.last_name,
-            r.role_name
+            r.role_name,
+            (sa.locked_until IS NOT NULL AND sa.locked_until > now()) AS is_locked
         FROM staff s
         JOIN staff_auth sa ON sa.staff_id = s.staff_id
         JOIN roles r ON r.role_id = sa.role_id
@@ -66,35 +67,65 @@ def login(data: LoginRequest, request: Request):
         locked_until,
         first_name,
         last_name,
-        role_name
+        role_name,
+        is_locked
     ) = user
+
+    if is_locked:
+        raise HTTPException(
+            status_code=403, 
+            detail="Cuenta bloqueada temporalmente debido a demasiados intentos fallidos. Intente nuevamente en unos segundos."
+        )
 
     if not is_active:
         raise HTTPException(status_code=403, detail="Usuario inactivo")
 
     if data.password != password_hash:
+        new_attempts = failed_attempts + 1
+        
         cur.execute("""
             UPDATE staff_auth
-            SET failed_attempts = failed_attempts + 1
+            SET failed_attempts = %s
             WHERE staff_id = %s
-        """, (staff_id,))
+        """, (new_attempts, staff_id))
 
         cur.execute("""
             INSERT INTO login_audit (staff_id, username, ip_address, user_agent, success, reason)
             VALUES (%s, %s, %s, %s, false, %s)
         """, (staff_id, email, ip_address, user_agent, "Contraseña incorrecta"))
 
-        if failed_attempts + 1 >= 3:
+        if new_attempts >= 5:
             cur.execute("""
                 UPDATE staff_auth
-                SET locked_until = now() + interval '15 minutes'
+                SET is_active = false
+                WHERE staff_id = %s
+            """, (staff_id,))
+
+            cur.execute("""
+                INSERT INTO intrusion_events (username, ip_address, severity, reason, status)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (email, ip_address, "HIGH", "Cuenta desactivada por 5 intentos fallidos", "OPEN"))
+
+            conn.commit()
+            cur.close()
+            conn.close()
+
+            raise HTTPException(
+                status_code=403, 
+                detail="Cuenta desactivada permanentemente por superar el límite de 5 intentos fallidos. Contacte a un administrador."
+            )
+
+        elif new_attempts >= 3:
+            cur.execute("""
+                UPDATE staff_auth
+                SET locked_until = now() + interval '30 seconds'
                 WHERE staff_id = %s
             """, (staff_id,))
 
             cur.execute("""
                 INSERT INTO intrusion_events (username, ip_address, severity, reason, blocked_until, status)
-                VALUES (%s, %s, %s, %s, now() + interval '15 minutes', %s)
-            """, (email, ip_address, "HIGH", "Demasiados intentos fallidos", "OPEN"))
+                VALUES (%s, %s, %s, %s, now() + interval '30 seconds', %s)
+            """, (email, ip_address, "HIGH", f"Demasiados intentos fallidos ({new_attempts} intentos)", "OPEN"))
 
         conn.commit()
         cur.close()

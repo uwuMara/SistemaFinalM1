@@ -5,6 +5,7 @@ export default function MonitoreoIntrusos() {
   const [activeTab, setActiveTab] = useState("sessions");
   const [sessions, setSessions] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
+  const [intrusionData, setIntrusionData] = useState({ suspicious_ips: [], events: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeOnly, setActiveOnly] = useState(true);
@@ -70,11 +71,44 @@ export default function MonitoreoIntrusos() {
       });
   };
 
+  const fetchIntrusionAlerts = () => {
+    setLoading(true);
+    fetch(
+      `${import.meta.env.VITE_API_URL}/auth/intrusion-alerts`,
+      {
+        headers: {
+          "X-Session-Id": localStorage.getItem("session_id").replace(/['"]+/g, '')
+        }
+      }
+    )
+      .then(async (res) => {
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`Error ${res.status}: ${errText || "Error al obtener las alertas de intrusión"}`);
+        }
+        return res.json();
+      })
+      .then((data) => {
+        console.log("Datos de alertas recibidos:", data);
+        setIntrusionData(data);
+        setError(null);
+      })
+      .catch((err) => {
+        console.error("Intrusion alerts fetch error:", err);
+        setError(err.message);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  };
+
   const refreshData = () => {
     if (activeTab === "sessions") {
       fetchSessions();
-    } else {
+    } else if (activeTab === "audit") {
       fetchAuditLogs();
+    } else if (activeTab === "intrusion_alerts") {
+      fetchIntrusionAlerts();
     }
   };
 
@@ -138,6 +172,34 @@ export default function MonitoreoIntrusos() {
       });
   };
 
+  const handleResolveEvent = (intrusionId) => {
+    if (!confirm("¿Estás seguro de que deseas marcar este evento de intrusión como resuelto?")) {
+      return;
+    }
+
+    fetch(`${import.meta.env.VITE_API_URL}/auth/intrusion-events/${intrusionId}/resolve`, {
+      method: "POST",
+      headers: {
+        "X-Session-Id": localStorage.getItem("session_id").replace(/['"]+/g, '')
+      },
+    })
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error("Error al resolver el evento de intrusión");
+        }
+        return res.json();
+      })
+      .then((data) => {
+        setMessage({ type: "success", text: data.message });
+        fetchIntrusionAlerts();
+        setTimeout(() => setMessage(null), 4000);
+      })
+      .catch((err) => {
+        setMessage({ type: "error", text: err.message });
+        setTimeout(() => setMessage(null), 4000);
+      });
+  };
+
   return (
     <DashboardLayout>
       <div>
@@ -176,7 +238,16 @@ export default function MonitoreoIntrusos() {
               : "text-slate-400 hover:text-slate-600"
               }`}
           >
-            Auditoría de Inicios de Sesión
+            Registros de Inicios de Sesión
+          </button>
+          <button
+            onClick={() => setActiveTab("intrusion_alerts")}
+            className={`pb-3 font-semibold text-lg transition-all ${activeTab === "intrusion_alerts"
+              ? "border-b-4 border-blue-900 text-blue-900"
+              : "text-slate-400 hover:text-slate-600"
+              }`}
+          >
+            Alertas de Intrusión
           </button>
         </div>
 
@@ -199,9 +270,13 @@ export default function MonitoreoIntrusos() {
                   Mostrar solo sesiones activas
                 </label>
               </div>
-            ) : (
+            ) : activeTab === "audit" ? (
               <span className="text-slate-600 font-medium">
                 Historial completo de intentos de inicio de sesión
+              </span>
+            ) : (
+              <span className="text-slate-600 font-medium">
+                Advertencias de intentos repetidos y eventos de seguridad
               </span>
             )}
           </div>
@@ -311,7 +386,7 @@ export default function MonitoreoIntrusos() {
                 </table>
               </div>
             )
-          ) : (
+          ) : activeTab === "audit" ? (
             // TAB 2: AUDITORÍA DE INICIOS DE SESIÓN
             auditLogs.length === 0 ? (
               <div className="p-10 text-center text-slate-500">
@@ -379,6 +454,157 @@ export default function MonitoreoIntrusos() {
                 </table>
               </div>
             )
+          ) : (
+            // TAB 3: ALERTAS DE INTRUSIÓN
+            <div className="p-6 space-y-8">
+              {/* Sección 1: IPs Sospechosas */}
+              <div>
+                <h3 className="text-xl font-bold text-slate-850 mb-2 flex items-center gap-2">
+                  <span className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-red-650"></span>
+                  </span>
+                  Advertencias de IP Sospechosas (Intentos Repetidos)
+                </h3>
+                <p className="text-sm text-slate-500 mb-4">
+                  IPs que han registrado 5 o más intentos fallidos de inicio de sesión.
+                </p>
+                {intrusionData.suspicious_ips.length === 0 ? (
+                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-6 text-center text-slate-500 font-medium">
+                    No se registran IPs sospechosas con más de 5 intentos fallidos en este momento.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto border border-slate-100 rounded-xl">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-100">
+                          <th className="p-4 text-slate-600 font-bold">Dirección IP</th>
+                          <th className="p-4 text-slate-600 font-bold">Intentos Fallidos</th>
+                          <th className="p-4 text-slate-600 font-bold">Cuentas Afectadas (Usernames)</th>
+                          <th className="p-4 text-slate-600 font-bold">Último Intento</th>
+                          <th className="p-4 text-slate-600 font-bold">Estado de Riesgo</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {intrusionData.suspicious_ips.map((ipAlert, index) => (
+                          <tr key={index} className="border-b border-slate-100 hover:bg-slate-50 transition">
+                            <td className="p-4 font-mono text-sm text-slate-800 font-semibold">{ipAlert.ip_address}</td>
+                            <td className="p-4 text-red-650 font-bold">{ipAlert.failed_attempts}</td>
+                            <td className="p-4 text-slate-600 text-sm">{ipAlert.usernames || "Desconocido"}</td>
+                            <td className="p-4 text-slate-500 text-sm">
+                              {ipAlert.last_attempt ? new Date(ipAlert.last_attempt).toLocaleString() : "N/A"}
+                            </td>
+                            <td className="p-4">
+                              <span className="bg-red-100 text-red-800 text-xs px-2.5 py-1 rounded-full font-bold">
+                                CRÍTICO
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Sección 2: Historial de Eventos de Intrusión */}
+              <div>
+                <h3 className="text-xl font-bold text-slate-850 mb-2">
+                  Historial de Eventos de Intrusión y Bloqueos automáticos
+                </h3>
+                <p className="text-sm text-slate-500 mb-4">
+                  Incidentes de intrusión de seguridad detectados por el sistema al intentar ingresar.
+                </p>
+                {intrusionData.events.length === 0 ? (
+                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-6 text-center text-slate-500 font-medium">
+                    No se registran eventos de intrusión en la base de datos.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto border border-slate-100 rounded-xl">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-100">
+                          <th className="p-4 text-slate-600 font-bold">ID</th>
+                          <th className="p-4 text-slate-600 font-bold">Usuario / IP</th>
+                          <th className="p-4 text-slate-600 font-bold">Gravedad</th>
+                          <th className="p-4 text-slate-600 font-bold">Detalle / Razón</th>
+                          <th className="p-4 text-slate-600 font-bold">Bloqueo Hasta</th>
+                          <th className="p-4 text-slate-600 font-bold">Estado</th>
+                          <th className="p-4 text-slate-600 font-bold text-center">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {intrusionData.events.map((event) => (
+                          <tr key={event.intrusion_id} className="border-b border-slate-100 hover:bg-slate-50 transition">
+                            <td className="p-4 text-slate-500 text-sm font-mono">{event.intrusion_id}</td>
+                            <td className="p-4">
+                              <div className="font-semibold text-slate-800">{event.username}</div>
+                              <div className="text-xs text-slate-500 font-mono">{event.ip_address}</div>
+                            </td>
+                            <td className="p-4">
+                              {event.severity === "HIGH" ? (
+                                <span className="bg-red-100 text-red-800 text-xs px-2.5 py-1 rounded-full font-bold">
+                                  ALTA
+                                </span>
+                              ) : event.severity === "MEDIUM" ? (
+                                <span className="bg-amber-100 text-amber-800 text-xs px-2.5 py-1 rounded-full font-semibold">
+                                  MEDIA
+                                </span>
+                              ) : (
+                                <span className="bg-slate-100 text-slate-800 text-xs px-2.5 py-1 rounded-full font-semibold">
+                                  BAJA
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-4 text-slate-600 text-sm">{event.reason}</td>
+                            <td className="p-4 text-slate-500 text-sm">
+                              {event.blocked_until
+                                ? new Date(event.blocked_until).toLocaleString()
+                                : (event.reason.toLowerCase().includes("desactivada") || event.reason.toLowerCase().includes("permanente"))
+                                  ? "Indefinido"
+                                  : "N/A"
+                              }
+                            </td>
+                            <td className="p-4">
+                              {event.status === "OPEN" ? (
+                                (event.blocked_until && new Date(event.blocked_until) <= new Date()) ? (
+                                  <span className="inline-flex items-center gap-1.5 bg-slate-100 text-slate-600 text-xs px-2.5 py-1 rounded-full font-semibold">
+                                    Expirado
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 bg-red-50 text-red-700 text-xs px-2.5 py-1 rounded-full font-semibold">
+                                    <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></span>
+                                    Abierto
+                                  </span>
+                                )
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 text-xs px-2.5 py-1 rounded-full font-semibold">
+                                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+                                  Resuelto
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-4 text-center text-xs">
+                              {(event.status === "OPEN" && (
+                                (event.blocked_until && new Date(event.blocked_until) > new Date()) ||
+                                (!event.blocked_until && (event.reason.toLowerCase().includes("desactivada") || event.reason.toLowerCase().includes("permanente")))
+                              )) && (
+                                  <button
+                                    onClick={() => handleResolveEvent(event.intrusion_id)}
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded-lg font-bold transition"
+                                  >
+                                    Revocar
+                                  </button>
+                                )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </div>
       </div>

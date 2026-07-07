@@ -44,6 +44,12 @@ export default function PerfilUsuario() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState({ type: "", text: "" });
 
+  // Flujo de seguridad 2FA
+  const [step, setStep] = useState("form");
+  const [code, setCode] = useState("");
+  const [maskedEmail, setMaskedEmail] = useState("");
+  const [closeOtherSessions, setCloseOtherSessions] = useState(false);
+
   const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
   // Cargar datos de localStorage (de lo que guardó el compañero en Login)
@@ -173,7 +179,7 @@ export default function PerfilUsuario() {
     }
   };
 
-  const handlePasswordSubmit = async (e) => {
+  const handleRequestCode = async (e) => {
     e.preventDefault();
     if (passwordForm.new_password !== passwordForm.confirm_password) {
       showMsg("error", "Las contraseñas no coinciden");
@@ -186,8 +192,8 @@ export default function PerfilUsuario() {
 
     setSubmitting(true);
     try {
-      // Llamada POST para cambiar contraseña
-      const response = await fetch(`${API_URL}/auth/change-password`, {
+      // Llamada POST para solicitar el código 2FA
+      const response = await fetch(`${API_URL}/auth/change-password/request-code`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -200,10 +206,52 @@ export default function PerfilUsuario() {
       });
 
       const resJson = await response.json();
+      if (!response.ok) throw new Error(resJson.detail || "Error al solicitar código");
+
+      setMaskedEmail(resJson.email);
+      setStep("verification");
+      showMsg("success", "Se ha enviado un código de seguridad a su correo.");
+    } catch (err) {
+      showMsg("error", err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleVerifyAndChangePassword = async (e) => {
+    e.preventDefault();
+    if (!code || code.length !== 6) {
+      showMsg("error", "El código debe ser de 6 dígitos");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      // Llamada POST para confirmar y cambiar contraseña con el código 2FA
+      const response = await fetch(`${API_URL}/auth/change-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Id": sessionId
+        },
+        body: JSON.stringify({
+          old_password: passwordForm.old_password,
+          new_password: passwordForm.new_password,
+          code: code,
+          close_other_sessions: closeOtherSessions
+        })
+      });
+
+      const resJson = await response.json();
       if (!response.ok) throw new Error(resJson.detail || "Error al cambiar la contraseña");
 
-      showMsg("success", "Contraseña actualizada correctamente.");
+      showMsg("success", resJson.message || "Contraseña actualizada correctamente.");
+      
+      // Limpiar estados
       setPasswordForm({ old_password: "", new_password: "", confirm_password: "" });
+      setCode("");
+      setCloseOtherSessions(false);
+      setStep("form");
       loadData();
     } catch (err) {
       showMsg("error", err.message);
@@ -567,93 +615,166 @@ export default function PerfilUsuario() {
               {/* PESTAÑA: SEGURIDAD (CONTRASEÑA) */}
               {activeTab === "seguridad" && (
                 <div className="bg-white rounded-3xl border border-slate-200 shadow-xl p-8">
-                  <div className="flex items-center gap-3 border-b border-slate-100 pb-6 mb-8">
-                    <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
-                      <Lock size={22} />
-                    </div>
-                    <div>
-                      <h2 className="text-xl font-extrabold text-slate-950">Seguridad de la Cuenta</h2>
-                      <p className="text-slate-500 text-sm">Cambia tu contraseña de acceso para mantener tu cuenta protegida.</p>
-                    </div>
-                  </div>
-
-                  <form onSubmit={handlePasswordSubmit} className="space-y-6">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Contraseña Actual</label>
-                      <div className="flex items-center border border-slate-200 rounded-xl px-4 py-3 bg-slate-50">
-                        <Key className="text-slate-400 mr-3" size={18} />
-                        <input
-                          type="password"
-                          value={passwordForm.old_password}
-                          onChange={(e) => setPasswordForm(prev => ({ ...prev, old_password: e.target.value }))}
-                          required
-                          placeholder="••••••••"
-                          className="w-full bg-transparent outline-none text-slate-850"
-                        />
+                  {step === "form" ? (
+                    <>
+                      <div className="flex items-center gap-3 border-b border-slate-100 pb-6 mb-8">
+                        <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
+                          <Lock size={22} />
+                        </div>
+                        <div>
+                          <h2 className="text-xl font-extrabold text-slate-950">Seguridad de la Cuenta</h2>
+                          <p className="text-slate-500 text-sm">Cambia tu contraseña de acceso para mantener tu cuenta protegida.</p>
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nueva Contraseña</label>
-                        <div className="flex items-center border border-slate-200 rounded-xl px-4 py-3 bg-slate-50">
-                          <Lock className="text-slate-400 mr-3" size={18} />
+                      <form onSubmit={handleRequestCode} className="space-y-6">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Contraseña Actual</label>
+                          <div className="flex items-center border border-slate-200 rounded-xl px-4 py-3 bg-slate-50">
+                            <Key className="text-slate-400 mr-3" size={18} />
+                            <input
+                              type="password"
+                              value={passwordForm.old_password}
+                              onChange={(e) => setPasswordForm(prev => ({ ...prev, old_password: e.target.value }))}
+                              required
+                              placeholder="••••••••"
+                              className="w-full bg-transparent outline-none text-slate-850 font-medium"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nueva Contraseña</label>
+                            <div className="flex items-center border border-slate-200 rounded-xl px-4 py-3 bg-slate-50">
+                              <Lock className="text-slate-400 mr-3" size={18} />
+                              <input
+                                type="password"
+                                value={passwordForm.new_password}
+                                onChange={(e) => setPasswordForm(prev => ({ ...prev, new_password: e.target.value }))}
+                                required
+                                placeholder="••••••••"
+                                className="w-full bg-transparent outline-none text-slate-850 font-medium"
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Confirmar Nueva Contraseña</label>
+                            <div className="flex items-center border border-slate-200 rounded-xl px-4 py-3 bg-slate-50">
+                              <Lock className="text-slate-400 mr-3" size={18} />
+                              <input
+                                type="password"
+                                value={passwordForm.confirm_password}
+                                onChange={(e) => setPasswordForm(prev => ({ ...prev, confirm_password: e.target.value }))}
+                                required
+                                placeholder="••••••••"
+                                className="w-full bg-transparent outline-none text-slate-850 font-medium"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Fortaleza de la Contraseña */}
+                        {passwordForm.new_password && (
+                          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                            <div className="flex justify-between items-center text-sm font-semibold text-slate-700 mb-2">
+                              <span>Fortaleza de la contraseña:</span>
+                              <span className="font-extrabold text-indigo-600">{passStrength.text}</span>
+                            </div>
+                            <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full transition-all duration-300 ${passStrength.color}`}></div>
+                            </div>
+                            <ul className="text-xs text-slate-500 mt-3 space-y-1">
+                              <li className={passwordForm.new_password.length >= 6 ? "text-emerald-600 font-semibold" : ""}>✓ Mínimo 6 caracteres</li>
+                              <li className={/[A-Z]/.test(passwordForm.new_password) ? "text-emerald-600 font-semibold" : ""}>✓ Al menos una mayúscula</li>
+                              <li className={/[0-9]/.test(passwordForm.new_password) ? "text-emerald-600 font-semibold" : ""}>✓ Al menos un número</li>
+                            </ul>
+                          </div>
+                        )}
+
+                        <div className="flex justify-end pt-6 border-t border-slate-100">
+                          <button
+                            type="submit"
+                            disabled={submitting}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-3.5 rounded-2xl flex items-center gap-2 transition duration-200 shadow-lg shadow-indigo-600/20 disabled:opacity-50"
+                          >
+                            <ChevronRight size={18} />
+                            {submitting ? "Procesando..." : "Siguiente: Enviar código"}
+                          </button>
+                        </div>
+                      </form>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-3 border-b border-slate-100 pb-6 mb-8">
+                        <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
+                          <Shield size={22} />
+                        </div>
+                        <div>
+                          <h2 className="text-xl font-extrabold text-slate-950">Verificación de 2 Pasos</h2>
+                          <p className="text-slate-500 text-sm">Ingresa el código que acabamos de enviar a tu correo.</p>
+                        </div>
+                      </div>
+
+                      <form onSubmit={handleVerifyAndChangePassword} className="space-y-6">
+                        <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100 text-sm text-blue-800 flex items-start gap-2.5">
+                          <AlertCircle className="mt-0.5 flex-shrink-0" size={18} />
+                          <div>
+                            Se ha enviado un código de seguridad de 6 dígitos a la dirección <strong>{maskedEmail}</strong>. El código expirará en 10 minutos.
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Código de Verificación</label>
+                          <div className="flex items-center border border-slate-200 rounded-xl px-4 py-3 bg-slate-50 focus-within:border-indigo-500">
+                            <Key className="text-slate-400 mr-3" size={18} />
+                            <input
+                              type="text"
+                              maxLength={6}
+                              value={code}
+                              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                              required
+                              placeholder="123456"
+                              className="w-full bg-transparent outline-none text-slate-850 font-bold tracking-[6px] text-lg placeholder:tracking-normal placeholder:font-normal"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100 select-none cursor-pointer">
                           <input
-                            type="password"
-                            value={passwordForm.new_password}
-                            onChange={(e) => setPasswordForm(prev => ({ ...prev, new_password: e.target.value }))}
-                            required
-                            placeholder="••••••••"
-                            className="w-full bg-transparent outline-none text-slate-850"
+                            type="checkbox"
+                            id="closeOtherSessions"
+                            checked={closeOtherSessions}
+                            onChange={(e) => setCloseOtherSessions(e.target.checked)}
+                            className="w-5 h-5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
                           />
+                          <label htmlFor="closeOtherSessions" className="text-sm font-semibold text-slate-700 cursor-pointer">
+                            Cerrar todas las demás sesiones activas en otros dispositivos
+                          </label>
                         </div>
-                      </div>
 
-                      <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Confirmar Nueva Contraseña</label>
-                        <div className="flex items-center border border-slate-200 rounded-xl px-4 py-3 bg-slate-50">
-                          <Lock className="text-slate-400 mr-3" size={18} />
-                          <input
-                            type="password"
-                            value={passwordForm.confirm_password}
-                            onChange={(e) => setPasswordForm(prev => ({ ...prev, confirm_password: e.target.value }))}
-                            required
-                            placeholder="••••••••"
-                            className="w-full bg-transparent outline-none text-slate-850"
-                          />
-                        </div>
-                      </div>
-                    </div>
+                        <div className="flex justify-between pt-6 border-t border-slate-100">
+                          <button
+                            type="button"
+                            onClick={() => { setStep("form"); setCode(""); }}
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-6 py-3.5 rounded-2xl transition duration-200"
+                          >
+                            Volver
+                          </button>
 
-                    {/* Fortaleza de la Contraseña */}
-                    {passwordForm.new_password && (
-                      <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                        <div className="flex justify-between items-center text-sm font-semibold text-slate-700 mb-2">
-                          <span>Fortaleza de la contraseña:</span>
-                          <span className="font-extrabold text-indigo-600">{passStrength.text}</span>
+                          <button
+                            type="submit"
+                            disabled={submitting}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-3.5 rounded-2xl flex items-center gap-2 transition duration-200 shadow-lg shadow-emerald-600/20 disabled:opacity-50"
+                          >
+                            <CheckCircle2 size={18} />
+                            {submitting ? "Verificando..." : "Confirmar y cambiar contraseña"}
+                          </button>
                         </div>
-                        <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-                          <div className={`h-full rounded-full transition-all duration-300 ${passStrength.color}`}></div>
-                        </div>
-                        <ul className="text-xs text-slate-500 mt-3 space-y-1">
-                          <li className={passwordForm.new_password.length >= 6 ? "text-emerald-600 font-semibold" : ""}>✓ Mínimo 6 caracteres</li>
-                          <li className={/[A-Z]/.test(passwordForm.new_password) ? "text-emerald-600 font-semibold" : ""}>✓ Al menos una mayúscula</li>
-                          <li className={/[0-9]/.test(passwordForm.new_password) ? "text-emerald-600 font-semibold" : ""}>✓ Al menos un número</li>
-                        </ul>
-                      </div>
-                    )}
-
-                    <div className="flex justify-end pt-6 border-t border-slate-100">
-                      <button
-                        type="submit"
-                        disabled={submitting}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-3.5 rounded-2xl flex items-center gap-2 transition duration-200 shadow-lg shadow-indigo-600/20 disabled:opacity-50"
-                      >
-                        <Lock size={18} />
-                        {submitting ? "Actualizando..." : "Actualizar Contraseña"}
-                      </button>
-                    </div>
-                  </form>
+                      </form>
+                    </>
+                  )}
                 </div>
               )}
 
